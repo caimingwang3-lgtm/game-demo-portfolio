@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="#10161f">
-  <title>幽影峡谷 · 幽影守卫 | 战斗与关卡策划 Demo</title>
+  <title>幽影峡谷 · 裂隙巫妖 | 战斗与关卡策划 Demo</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="game-v2.css">
 </head>
@@ -32,7 +32,7 @@
         <div class="seal">影</div>
         <div>
           <div class="kicker">关卡策划 × 战斗策划 · 面试作品 Demo</div>
-          <h1>幽影峡谷 <span>·</span> 幽影守卫</h1>
+          <h1>幽影峡谷 <span>·</span> 裂隙巫妖</h1>
         </div>
       </div>
       <div class="header-actions">
@@ -76,17 +76,36 @@
             <div class="overlay-card">
               <div class="overlay-kicker">GHOST CANYON / COMBAT & LEVEL DESIGN</div>
               <h2 id="overlayTitle">读招、应对，再抓住反击窗口</h2>
-              <p id="overlayText">通过热身与高压遭遇进入检查点，再挑战有三阶段招式变化的幽影守卫。格挡能减伤但消耗耐力；弹反要求距离、朝向与时机。</p>
-              <div class="overlay-meta"><span>✦ 格挡与破防</span><span>✦ 近身弹反</span><span>✦ 三阶段 Boss</span></div>
+              <p id="overlayText">通过热身与高压遭遇进入检查点，先击败幽影守卫精英，再决定是否挑战裂隙巫妖。用普攻、格挡、弹反与闪避应对敌人。</p>
+              <div class="overlay-meta"><span>✦ 幽影守卫精英战</span><span>✦ 裂隙巫妖首领战</span><span>✦ 格挡与弹反</span></div>
               <div class="overlay-actions">
                 <button id="startBtn" class="primary" type="button">完整试炼 <b>→</b></button>
                 <button id="bossBtn" class="secondary" type="button">直达 Boss <b>↗</b></button>
-                <button id="debugBtn" class="secondary" type="button" title="无敌+无限能量+快捷键切阶段">策划测试 <b>⚙</b></button>
+                <button id="debugBtn" class="secondary" type="button" title="选择关卡和受伤规则">策划模式 <b>⚙</b></button>
+              </div>
+              <div id="plannerPanel" class="planner-panel" hidden>
+                <label>测试关卡
+                  <select id="plannerStage">
+                    <option value="warmup">峡谷入口 · 热身教学</option>
+                    <option value="pressure">回音峡道 · 双威胁</option>
+                    <option value="rest">断桥检查点</option>
+                    <option value="elite">幽影守卫 · 精英战</option>
+                    <option value="rift-p1">裂隙巫妖 · P1</option>
+                    <option value="rift-p2">裂隙巫妖 · P2</option>
+                    <option value="rift-p3">裂隙巫妖 · P3</option>
+                    <option value="rift-p4">裂隙巫妖 · P4</option>
+                  </select>
+                </label>
+                <label class="planner-damage"><input id="plannerDamage" type="checkbox" checked> 玩家会受到伤害</label>
+                <div class="planner-actions">
+                  <button id="plannerStart" class="primary" type="button">开始测试</button>
+                  <button id="plannerCancel" class="secondary" type="button">取消</button>
+                </div>
               </div>
               <div id="resultSummary" class="result-summary" hidden></div>
             </div>
           </div>
-          <div class="canvas-caption"><span><i></i> 本人提案与设计 · Codex编程与调试</span><span>移动 A/D　跳跃 Space　攻击 J　格挡按住 F　弹反 E　闪避 Shift　奥义 K</span></div>
+          <div class="canvas-caption"><span><i></i> 玩法方向与迭代：本人 · 网页原型：AI 辅助实现</span><span>移动 A/D　J 普攻　F 格挡　E 弹反　Shift 闪避</span></div>
         </div>
 
         <div class="touch-controls" aria-label="触屏操作">
@@ -101,8 +120,8 @@
           </div>
         </div>
         <footer class="play-footer">
-          <span>关卡节奏　热身 → 双威胁 → 检查点 → 三阶段 Boss</span>
-          <span>F 持续格挡　·　E 精确弹反　·　Shift 闪避　·　K 满能量奥义</span>
+          <span>关卡节奏　热身 → 双威胁 → 检查点 → 精英 → 最终 Boss</span>
+          <span>J 普攻　·　F 格挡　·　E 弹反　·　Shift 闪避　·　K/Z 奥义</span>
         </footer>
       </section>
 
@@ -118,10 +137,10 @@
 
         <div class="move-card">
           <div class="move-head"><span class="section-label">Boss 招式识别</span><span id="moveTimer" class="move-timer">待命</span></div>
-          <div class="move-item" id="moveSlash"><span class="move-symbol low-symbol">↗</span><div><b>幽影横斩</b><small>可格挡；近身、正面、抓准时机可弹反</small></div><span class="move-tag">P1</span></div>
-          <div class="move-item" id="moveShot"><span class="move-symbol drop-symbol">◉</span><div><b>暗影投射物</b><small>可格挡减伤；直线飞行，可跳/闪避</small></div><span class="move-tag">P1</span></div>
-          <div class="move-item" id="moveRush"><span class="move-symbol combo-symbol">⇢</span><div><b>影袭突进</b><small>锁定方向后突进；可跳、闪或贴近弹反</small><span class="move-tag p2">P2</span></div></div>
-          <div class="move-item" id="moveWave"><span class="move-symbol wave-symbol">⌁</span><div><b>地面震荡</b><small>不可格挡；跳跃或进入高亮安全区</small><span class="move-tag p3">P3</span></div></div>
+          <div class="move-item" id="moveSlash"><span class="move-symbol low-symbol">◉</span><div><b>灵魂震爆</b><small>圆形法术范围；慢速范围大、快速范围小</small></div><span class="move-tag">慢/快</span></div>
+          <div class="move-item" id="moveShot"><span class="move-symbol drop-symbol">✧</span><div><b>追魂冥火</b><small>裂隙释放分层魂火；观察弹道高度</small></div><span class="move-tag">P1</span></div>
+          <div class="move-item" id="moveRush"><span class="move-symbol combo-symbol">⌾</span><div><b>幽魂换位</b><small>先标记传送落点，再发生圆形冲击</small><span class="move-tag p2">P2</span></div></div>
+          <div class="move-item" id="moveWave"><span class="move-symbol wave-symbol">⌘</span><div><b>亡魂印爆</b><small>锁定脚下位置后爆发；离开紫色符印</small><span class="move-tag p3">P3</span></div></div>
         </div>
 
         <div class="combat-loop"><span class="section-label">攻防循环</span><div class="loop"><span>读前摇</span><i>→</i><span>选防守</span><i>→</i><span>抓恢复输出</span></div></div>
@@ -141,13 +160,38 @@
     </div>
 
     <div class="design-strip">
-      <div><b>关卡节奏</b><span>单一威胁教学 · 双威胁压力 · 检查点泄压</span></div>
-      <div><b>战斗系统</b><span>前摇 / 有效帧 / 恢复 · 格挡 / 弹反 / 闪避</span></div>
+      <div><b>关卡节奏</b><span>单一威胁教学 · 双威胁压力 · 检查点 · 精英与首领</span></div>
+      <div><b>战斗系统</b><span>前摇 / 有效帧 / 恢复 · 格挡 / 弹反 / 闪避 / 奥义</span></div>
       <div><b>体验复盘</b><span>命中 / 挥空 / 防守 / 受击来源 / 主观问卷</span></div>
       <a href="战斗关卡评审与迭代方案_v2.md" target="_blank" rel="noopener">查看评审与设计方案 ↗</a>
     </div>
-    <p class="credits">本人提案与设计 · Codex编程与调试实现 · 数值为待试玩校准初值 · <a href="README.md" target="_blank">项目说明</a> · <a href="素材来源.md" target="_blank">素材授权</a></p>
+    <p class="credits">玩法方向与迭代：本人 · 网页原型：AI 辅助实现 · 参数尚待外部试玩校准 · <a href="README.md" target="_blank">项目说明</a> · <a href="素材来源.md" target="_blank">素材授权</a></p>
   </main>
+
+  <div class="story-overlay" id="storyOverlay" hidden>
+    <section class="story-card" role="dialog" aria-modal="true" aria-labelledby="storyTitle">
+      <div class="story-kicker">CHAPTER 04 · THE HAND BEHIND THE VEIL</div>
+      <h2 id="storyTitle">裂隙彼端，有人在等你</h2>
+      <div id="storyNarrative" class="story-narrative">
+        <p>幽影守卫倒下，盔甲里却没有血。裂纹中涌出的黑雾，正被远处的裂隙一缕缕吸走。</p>
+        <p>“我只是看门人……”守卫的声音从空盔里传来，“峡谷的战乱、这场试炼……都是那个人安排的。”</p>
+        <p>裂隙深处响起熟悉的低语：“让他们一路厮杀、变强，再亲自把他们带到我面前。”</p>
+        <p>你终于明白：操纵幽影守卫、引发峡谷异变的幕后黑手，正是裂隙巫妖。它一直在用这场试炼筛选挑战者。</p>
+        <div class="story-actions">
+          <button id="storyNext" class="primary" type="button">读完，做出选择 <b>→</b></button>
+          <button id="storySkip" class="secondary" type="button">跳过剧情 <b>Space</b></button>
+        </div>
+      </div>
+      <div id="storyChoice" class="story-choice" hidden>
+        <p>裂隙正在扩张。你要追进去，终结这一切吗？</p>
+        <div class="story-actions">
+          <button id="challengeRiftBtn" class="primary" type="button">继续挑战最终 Boss <b>⚔</b></button>
+          <button id="leaveRiftBtn" class="secondary" type="button">暂不挑战，回到峡谷 <b>↩</b></button>
+        </div>
+      </div>
+      <div class="story-hint">按 Space 跳过剧情并直接选择；跳过不会替你选择是否开战。</div>
+    </section>
+  </div>
 
   <div class="feedback-modal" id="feedbackModal" hidden>
     <div class="feedback-scrim" data-close-feedback></div>

@@ -4,14 +4,15 @@
   const WIDTH = 960;
   const HEIGHT = 540;
   const FLOOR = 466;
-  const BOSS_MAX_HP = 600;
+  const ELITE_MAX_HP = 360;
+  const BOSS_MAX_HP = 720;
   const ULTIMATE_REQUIRED = 70;
   const ULTIMATE_RANGE = 320;
   const STORAGE = {
     warmup: { name: '峡谷入口 · 热身教学', goal: '靠近影卫，观察抬剑；试一次格挡或近身弹反。', palette: [0x13202b, 0x25404a, 0x926b52] },
     pressure: { name: '回音峡道 · 双威胁', goal: '先处理近战逼近，再留意远处直线投射物。', palette: [0x111e2b, 0x2e4551, 0x9a6656] },
-    rest: { name: '断桥检查点 · 收尾休整', goal: '补充生命与耐力，沿右侧入口进入守卫战。', palette: [0x15252b, 0x344944, 0x8cb38f] },
-    boss: { name: '幽影守卫 · 三阶段试炼', goal: '正面格挡横斩；弹反需贴近；地面震荡要跳或进安全区。', palette: [0x161b2b, 0x393149, 0xd17b74] },
+    rest: { name: '断桥检查点 · 收尾休整', goal: '补充生命与耐力，沿右侧入口挑战精英与首领。', palette: [0x15252b, 0x344944, 0x8cb38f] },
+    boss: { name: '断桥试炼 · 精英与首领', goal: '击败幽影守卫精英，迎战裂隙巫妖。', palette: [0x161b2b, 0x393149, 0x987ce0] },
   };
 
   const CLIPS = [
@@ -20,6 +21,16 @@
     ['Slash', 46, 64, 0], ['Slash2', 101, 132, 0], ['Slash3', 51, 72, 0],
     ['Attack1', 31, 48, 0], ['Impact', 24, 38, 0], ['Impact2', 30, 42, 0],
     ['Death', 70, 40, 0], ['PowerUp', 72, 90, 0],
+  ];
+
+  // 战斗音效键名。音频文件为本项目原创程序合成（44.1kHz 16-bit PCM WAV），
+  // 全部为项目原创，不含第三方素材。
+  const COMBAT_SFX = [
+    'sfx_slash_1', 'sfx_slash_2', 'sfx_slash_3', 'sfx_hit_flesh',
+    'sfx_guard_break', 'sfx_death', 'sfx_dodge', 'sfx_ultimate',
+    'sfx_boss_tell', 'sfx_soulburst', 'sfx_soulfire', 'sfx_soulfire_hit',
+    'sfx_shift', 'sfx_rune_mark', 'sfx_rune_burst', 'sfx_boss_hurt',
+    'sfx_boss_phase', 'sfx_boss_death', 'sfx_enemy_death',
   ];
 
   const ATTACKS = [
@@ -34,13 +45,28 @@
     rush: { label: '影袭突进', tell: 0.94, active: 0.48, recover: 1.15, damage: 26, guardable: false, parryable: true, range: 88, type: 'rush' },
     wave: { label: '地面震荡', tell: 1.12, active: 0.22, recover: 1.02, damage: 22, guardable: false, parryable: false, range: 0, type: 'wave' },
   };
+  const ELITE_MOVES = {
+    slash: { ...BOSS_MOVES.slash, label: '幽影重斩', tell: 0.78, recover: 0.88, damage: 22, range: 172 },
+    shot: { ...BOSS_MOVES.shot, label: '暗影投射物', tell: 0.66, recover: 0.66, damage: 17 },
+    rush: { ...BOSS_MOVES.rush, label: '影袭突进', tell: 0.82, recover: 0.96, damage: 30, range: 98 },
+    wave: { ...BOSS_MOVES.wave, label: '地面震荡', tell: 1.02, recover: 0.9, damage: 25 },
+  };
 
   // Controlled strings keep test runs comparable while reducing one-pattern farming.
-  const PHASE_PATTERNS = {
+  const ELITE_PATTERNS = {
+    1: [['slash', 'shot', 'rush', 'slash', 'wave', 'shot'], ['shot', 'rush', 'slash', 'wave', 'slash', 'shot']],
+  };
+  const RIFT_PATTERNS = {
     1: [['slash', 'shot', 'slash', 'shot'], ['shot', 'slash', 'shot', 'slash']],
     2: [['slash', 'rush', 'shot', 'slash', 'rush'], ['shot', 'slash', 'rush', 'slash', 'shot']],
-    3: [['wave', 'slash', 'rush', 'wave', 'shot', 'slash'], ['slash', 'wave', 'shot', 'rush', 'slash', 'wave']],
-    4: [['rush', 'wave', 'slash', 'slash', 'shot', 'rush'], ['wave', 'rush', 'slash', 'wave', 'shot', 'slash']],
+    3: [['wave', 'shot', 'rush', 'slash', 'wave', 'rush'], ['rush', 'wave', 'slash', 'shot', 'rush', 'wave']],
+    4: [['rush', 'wave', 'slash', 'shot', 'rush', 'wave'], ['wave', 'rush', 'shot', 'slash', 'wave', 'rush']],
+  };
+  const RIFT_MOVES = {
+    slash: { ...BOSS_MOVES.slash, label: '靈魂震爆', tell: 1.45, active: 0.22, recover: 1.3, damage: 22, range: 205 },
+    shot: { ...BOSS_MOVES.shot, label: '追魂冥火', tell: 1.08, recover: 1.1, damage: 12 },
+    rush: { ...BOSS_MOVES.rush, label: '幽魂換位', tell: 1.22, active: 0.56, recover: 1.3, damage: 28, range: 96 },
+    wave: { ...BOSS_MOVES.wave, label: '亡魂印爆', tell: 1.35, active: 0.34, recover: 1.25, damage: 24, range: 92 },
   };
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -58,6 +84,7 @@
       this.touch = { left: false, right: false, guard: false };
       this.lastRun = null;
       this.messageTimer = 0;
+      this.story = { stage: 'hidden' };
     }
 
     freshStats() {
@@ -68,12 +95,20 @@
       for (const [clip] of CLIPS) {
         this.load.atlas(clip, `assets/knight/${clip}.png`, `assets/knight/${clip}.json`);
       }
-      for (const clip of ['idle', 'run', 'attack', 'jump', 'dead']) {
+      for (const clip of ['idle', 'run', 'attack', 'jump', 'dead', 'hurt']) {
         this.load.spritesheet(`hero-${clip}`, `assets/hero/${clip}.png`, { frameWidth: 240, frameHeight: 315 });
       }
-      this.load.audio('sfx-parry', 'assets/audio/confirmation_001.ogg');
-      this.load.audio('sfx-hit', 'assets/audio/glass_001.ogg');
-      this.load.audio('sfx-guard', 'assets/audio/drop_001.ogg');
+      // 战斗音效：项目原创程序合成（见 素材来源.md）
+      this.load.audio('sfx-parry', 'assets/audio/sfx_parry.wav');
+      this.load.audio('sfx-hit', 'assets/audio/sfx_hurt.wav');
+      this.load.audio('sfx-guard', 'assets/audio/sfx_guard.wav');
+      for (const key of COMBAT_SFX) this.load.audio(key, `assets/audio/${key}.wav`);
+      // Boss 技能特效序列帧（本项目原创程序生成）
+      this.load.spritesheet('fx_soulburst', 'assets/fx/fx_soulburst.png', { frameWidth: 160, frameHeight: 160 });
+      this.load.spritesheet('fx_rune', 'assets/fx/fx_rune.png', { frameWidth: 192, frameHeight: 112 });
+      this.load.spritesheet('fx_rift', 'assets/fx/fx_rift.png', { frameWidth: 128, frameHeight: 208 });
+      this.load.spritesheet('fx_soulfire', 'assets/fx/fx_soulfire.png', { frameWidth: 64, frameHeight: 64 });
+      this.load.spritesheet('fx_soulfire_hit', 'assets/fx/fx_soulfire_hit.png', { frameWidth: 96, frameHeight: 96 });
     }
 
     create() {
@@ -82,6 +117,7 @@
       this.physics.world.setBoundsCollision(true, true, true, false);
       this.makeAnimations();
       this.makeHeroAnimations();
+      this.makeFxAnimations();
       this.floorBody = this.add.rectangle(WIDTH / 2, FLOOR + 35, WIDTH + 60, 70, 0x000000, 0);
       this.physics.add.existing(this.floorBody, true);
 
@@ -99,6 +135,9 @@
       this.bossSprite = this.add.sprite(746, FLOOR, 'Idle', 'Idle0000').setDepth(10).setScale(1.2).setTint(0xe7798e).setVisible(false);
       this.bossSprite.setOriginFromFrame();
       this.bossSprite.play('knight-idle');
+      this.bossAura = this.add.graphics().setDepth(8);
+      this.riftArt = this.add.graphics().setDepth(11);
+      this.bossAdornment = this.add.graphics().setDepth(14);
 
       this.entities = [];
       this.projectiles = [];
@@ -112,7 +151,7 @@
       this.actionCaption = this.add.text(WIDTH / 2, 77, '', { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', fontSize: '12px', color: '#f2d6a1', stroke: '#0b1119', strokeThickness: 4, align: 'center' }).setOrigin(0.5).setDepth(31).setAlpha(0);
 
       this.playerState = { hp: 100, stamina: 100, energy: 0, invuln: 0, invulnSource: '', guardBreak: 0, guardRecover: 0, parryWindow: 0, parryCooldown: 0, parryPending: false, parryAnim: 0, dodgeTimer: 0, dodgeCooldown: 0, ultimateTimer: 0, hurtTimer: 0, attack: null, attackCooldown: 0, comboIndex: 0, comboGrace: 0, combo: 0, facing: 1, lastGuard: 0, groundHits: 0 };
-      this.boss = { hp: BOSS_MAX_HP, maxHp: BOSS_MAX_HP, phase: 1, mode: 'hidden', timer: 0, move: '', sequence: 0, lastMove: '', posture: 0, hurtTimer: 0, hitResolved: false, targetX: 0, facing: -1, rushHit: false, ghostTimer: 0 };
+      this.boss = { hp: BOSS_MAX_HP, maxHp: BOSS_MAX_HP, phase: 1, encounter: 'rift', mode: 'hidden', timer: 0, move: '', sequence: 0, lastMove: '', slashCount: 0, slashTempo: 'slow', moveActive: 0, moveRecover: 0, posture: 0, hurtTimer: 0, hitResolved: false, targetX: 0, facing: -1, rushHit: false, ghostTimer: 0 };
 
       this.keys = this.input.keyboard.addKeys({
         left: Phaser.Input.Keyboard.KeyCodes.A,
@@ -131,6 +170,12 @@
         ultimateAlt: Phaser.Input.Keyboard.KeyCodes.Z,
         pause: Phaser.Input.Keyboard.KeyCodes.ESC,
       });
+      this.input.keyboard.on('keydown-SPACE', (event) => {
+        if (this.status === 'story') {
+          event.preventDefault();
+          this.skipStory();
+        }
+      });
       this.input.keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.SPACE, Phaser.Input.Keyboard.KeyCodes.UP, Phaser.Input.Keyboard.KeyCodes.LEFT, Phaser.Input.Keyboard.KeyCodes.RIGHT]);
 
       // 策划测试快捷键：1/2/3/4 切 Boss 阶段，Q 补满能量，H 回满血
@@ -138,8 +183,8 @@
       this.input.keyboard.on('keydown-TWO', () => this.debugSetPhase(2));
       this.input.keyboard.on('keydown-THREE', () => this.debugSetPhase(3));
       this.input.keyboard.on('keydown-FOUR', () => this.debugSetPhase(4));
-      this.input.keyboard.on('keydown-Q', () => { if (this.godMode) { this.playerState.energy = ULTIMATE_REQUIRED; this.setMessage('能量已补满。'); } });
-      this.input.keyboard.on('keydown-H', () => { if (this.godMode) { this.playerState.hp = 10000; this.setMessage('生命已回满。'); } });
+      this.input.keyboard.on('keydown-Q', () => { if (this.debugMode) { this.playerState.energy = ULTIMATE_REQUIRED; this.setMessage('策划测试：能量已补满。'); } });
+      this.input.keyboard.on('keydown-H', () => { if (this.debugMode) { this.playerState.hp = this.godMode ? 10000 : 100; this.setMessage('策划测试：生命已回满。'); } });
 
       this.room = 'warmup';
       this.roomIndex = 0;
@@ -177,10 +222,29 @@
       });
     }
 
+    makeFxAnimations() {
+      // [动画键, 贴图键, 起始帧, 结束帧, 帧率, 是否循环]
+      const defs = [
+        ['fx-soulburst', 'fx_soulburst', 0, 11, 30, 0],
+        // 亡魂印拆成两段：蓄力段播完停在帧 7（蓄满），爆发段单独触发，
+        // 这样 burst 的那一帧才能和 resolveBossMove 的判定瞬间对齐。
+        ['fx-rune-charge', 'fx_rune', 0, 7, 6, 0],
+        ['fx-rune-burst', 'fx_rune', 8, 13, 18, 0],
+        ['fx-rift', 'fx_rift', 0, 9, 24, 0],
+        ['fx-soulfire', 'fx_soulfire', 0, 7, 14, -1],
+        ['fx-soulfire-hit', 'fx_soulfire_hit', 0, 7, 26, 0],
+      ];
+      for (const [key, texture, start, end, frameRate, repeat] of defs) {
+        this.anims.create({ key, frames: this.anims.generateFrameNumbers(texture, { start, end }), frameRate, repeat });
+      }
+    }
+
     makeHeroAnimations() {
       const clips = [
         ['idle', 10, 11, -1], ['run', 10, 16, -1],
         ['attack', 10, 15, 0], ['jump', 10, 14, 0], ['dead', 10, 12, 0],
+        // 受击：10 帧 / 24fps ≈ 0.417s，与 playerDamage 里的 p.hurtTimer = 0.42 对齐
+        ['hurt', 10, 24, 0],
       ];
       for (const [clip, end, frameRate, repeat] of clips) {
         this.anims.create({ key: `hero-${clip}`, frames: this.anims.generateFrameNumbers(`hero-${clip}`, { start: 0, end: end - 1 }), frameRate, repeat });
@@ -190,10 +254,24 @@
     attachUi() {
       document.querySelector('#startBtn').addEventListener('click', () => this.status === 'paused' ? this.togglePause() : this.begin('full'));
       document.querySelector('#bossBtn').addEventListener('click', () => this.begin('boss'));
-      document.querySelector('#debugBtn').addEventListener('click', () => this.begin('debug'));
+      const plannerPanel = document.querySelector('#plannerPanel');
+      document.querySelector('#debugBtn').addEventListener('click', () => { plannerPanel.hidden = !plannerPanel.hidden; });
+      document.querySelector('#plannerCancel').addEventListener('click', () => { plannerPanel.hidden = true; });
+      document.querySelector('#plannerStart').addEventListener('click', () => {
+        this.debugConfig = {
+          stage: document.querySelector('#plannerStage').value,
+          godMode: !document.querySelector('#plannerDamage').checked
+        };
+        plannerPanel.hidden = true;
+        this.begin('debug', this.debugConfig);
+      });
       document.querySelector('#pauseBtn').addEventListener('click', () => this.togglePause());
-      document.querySelector('#restartBtn').addEventListener('click', () => this.begin(this.mode));
+      document.querySelector('#restartBtn').addEventListener('click', () => this.begin(this.mode, this.debugConfig));
       document.querySelector('#soundBtn').addEventListener('click', () => this.toggleSound());
+      document.querySelector('#storyNext').addEventListener('click', () => this.showStoryChoice());
+      document.querySelector('#storySkip').addEventListener('click', () => this.skipStory());
+      document.querySelector('#challengeRiftBtn').addEventListener('click', () => this.acceptRiftChallenge());
+      document.querySelector('#leaveRiftBtn').addEventListener('click', () => this.declineRiftChallenge());
 
       document.querySelectorAll('[data-action]').forEach((button) => {
         const action = button.dataset.action;
@@ -294,9 +372,11 @@
       }
     }
 
-    begin(mode) {
+    begin(mode, debugConfig = this.debugConfig) {
       this.mode = mode;
-      this.godMode = mode === 'debug';
+      this.debugMode = mode === 'debug';
+      this.debugConfig = this.debugMode ? { stage: debugConfig?.stage || 'rift-p1', godMode: Boolean(debugConfig?.godMode) } : null;
+      this.godMode = this.debugMode && this.debugConfig.godMode;
       this.status = 'run';
       this.elapsed = 0;
       this.stats = this.freshStats();
@@ -305,19 +385,22 @@
       this.touch.left = false;
       this.touch.right = false;
       this.touch.guard = false;
+      this.story.stage = 'hidden';
+      document.querySelector('#storyOverlay').hidden = true;
       this.clearEncounterObjects();
       const p = this.playerState;
-      Object.assign(p, { hp: this.godMode ? 10000 : 100, stamina: 100, energy: (mode === 'boss' || this.godMode) ? (this.godMode ? ULTIMATE_REQUIRED : 40) : 0, invuln: 0, invulnSource: '', guardBreak: 0, guardRecover: 0, parryWindow: 0, parryCooldown: 0, parryPending: false, parryAnim: 0, dodgeTimer: 0, dodgeCooldown: 0, ultimateTimer: 0, hurtTimer: 0, attack: null, attackCooldown: 0, comboIndex: 0, comboGrace: 0, combo: 0, facing: 1, lastGuard: 0, groundHits: 0 });
+      Object.assign(p, { hp: this.godMode ? 10000 : 100, stamina: 100, energy: (mode === 'boss' || this.debugMode) ? (this.godMode ? ULTIMATE_REQUIRED : 40) : 0, invuln: 0, invulnSource: '', guardBreak: 0, guardRecover: 0, parryWindow: 0, parryCooldown: 0, parryPending: false, parryAnim: 0, dodgeTimer: 0, dodgeCooldown: 0, ultimateTimer: 0, hurtTimer: 0, attack: null, attackCooldown: 0, comboIndex: 0, comboGrace: 0, combo: 0, facing: 1, lastGuard: 0, groundHits: 0 });
       this.player.setVisible(true).clearTint().setFlipX(false);
       this.player.play('hero-idle');
-      this.player.setPosition((mode === 'boss' || this.godMode) ? 216 : 132, FLOOR);
+      this.player.setPosition((mode === 'boss' || this.debugMode) ? 216 : 132, FLOOR);
       this.player.body.reset(this.player.x, FLOOR);
       this.player.body.setVelocity(0, 0);
-      this.boss = { hp: BOSS_MAX_HP, maxHp: BOSS_MAX_HP, phase: 1, mode: 'hidden', timer: 0, move: '', sequence: 0, lastMove: '', posture: 0, hurtTimer: 0, hitResolved: false, targetX: 0, facing: -1, rushHit: false, ghostTimer: 0 };
-      this.bossSprite.setVisible(false).setPosition(746, FLOOR).setTint(0xe7798e).setFlipX(true).play('knight-idle');
+      this.boss = { hp: BOSS_MAX_HP, maxHp: BOSS_MAX_HP, phase: 1, encounter: 'rift', mode: 'hidden', timer: 0, move: '', sequence: 0, lastMove: '', slashCount: 0, slashTempo: 'slow', moveActive: 0, moveRecover: 0, posture: 0, hurtTimer: 0, hitResolved: false, targetX: 0, facing: -1, rushHit: false, ghostTimer: 0 };
+      this.bossSprite.setTexture('Idle', 'Idle0000').setOriginFromFrame().setScale(1.2).setVisible(false).setPosition(746, FLOOR).setTint(0xe7798e).setFlipX(true).play('knight-idle');
       this.bossShadow.setVisible(false);
-      this.roomIndex = (mode === 'boss' || this.godMode) ? 3 : 0;
-      this.room = (mode === 'boss' || this.godMode) ? 'boss' : 'warmup';
+      const debugRoom = this.debugMode ? ({ warmup: 'warmup', pressure: 'pressure', rest: 'rest' }[this.debugConfig.stage] || 'boss') : null;
+      this.roomIndex = mode === 'boss' || (this.debugMode && debugRoom === 'boss') ? 3 : 0;
+      this.room = mode === 'boss' ? 'boss' : (debugRoom || 'warmup');
       this.buildRoom(this.room);
       this.physics.world.resume();
       document.querySelector('#overlay').classList.add('hidden');
@@ -325,10 +408,15 @@
       document.querySelector('#startBtn').innerHTML = '完整试炼 <b>→</b>';
       document.querySelector('#bossBtn').innerHTML = '直达 Boss <b>↗</b>';
       document.querySelector('#resultSummary').hidden = true;
-      if (this.godMode) this.setMessage('【策划测试模式】无敌+奥义常驻。快捷键：1/2/3/4 切换 Boss 阶段，Q 补满能量，H 回满血。');
-      else this.setMessage(mode === 'boss' ? 'Boss 练习模式：生命与耐力已补满，先认清横斩预警。' : '热身区：单一近战敌人先教会你观察抬剑与近身距离。');
-      if (mode === 'boss' || this.godMode) this.enterBoss(true);
-      else this.enterRoom(0, true);
+      if (this.debugMode) this.setMessage(`${this.godMode ? '【无敌策划测试】' : '【承伤策划测试】'}快捷键：1/2/3/4 切换巫妖阶段，Q 补满能量，H 回满血。`);
+      else this.setMessage(mode === 'boss' ? 'Boss 练习模式：生命与耐力已补满，先认清首领招式预警。' : '热身区：单一近战敌人先教会你观察抬剑与近身距离。');
+      if (mode === 'boss' || (this.debugMode && debugRoom === 'boss')) {
+        const stage = this.debugConfig?.stage || '';
+        this.enterBoss(stage === 'elite' ? false : true);
+        if (this.debugMode && stage.startsWith('rift-p')) this.debugSetPhase(Number(stage.slice(-1)));
+      } else {
+        this.enterRoom(this.debugMode ? ({ warmup: 0, pressure: 1, rest: 2 }[this.debugConfig.stage] || 0) : 0, true);
+      }
       const music = document.querySelector('#bgm');
       if (music) music.play().catch(() => {});
       this.updateUi();
@@ -364,7 +452,7 @@
         p.energy = Math.min(100, p.energy + 15);
         this.setMessage('检查点：生命恢复 28，格挡耐力补满。往右进入 Boss 战。');
       } else {
-        this.enterBoss(true);
+        this.enterBoss(false);
       }
       this.updateUi();
     }
@@ -373,23 +461,246 @@
       this.room = 'boss';
       this.buildRoom('boss');
       this.clearEncounterObjects();
-      this.boss.hp = BOSS_MAX_HP;
-      this.boss.maxHp = BOSS_MAX_HP;
+      this.boss.encounter = practice ? 'rift' : 'elite';
+      this.boss.maxHp = practice ? BOSS_MAX_HP : ELITE_MAX_HP;
+      this.boss.hp = this.boss.maxHp;
       this.boss.phase = 1;
       this.boss.sequence = 0;
+      this.boss.slashCount = 0;
+      this.boss.slashTempo = 'slow';
       this.boss.posture = 0;
       this.boss.lastMove = '';
       this.boss.mode = 'intro';
       this.boss.timer = 1.35;
       this.boss.move = '';
       this.boss.hitResolved = false;
-      this.bossSprite.setVisible(true).setPosition(746, FLOOR).setScale(1.2).setTint(0xe7798e).setFlipX(true).play('knight-powerup');
+      this.setBossAppearance();
+      this.bossSprite.setPosition(746, FLOOR).setFlipX(true).setVisible(this.boss.encounter !== 'rift');
+      this.playBossAnimation('knight-powerup');
       this.bossShadow.setVisible(true).setPosition(746, FLOOR + 4);
+      this.updateBossMoveCardCopy();
       this.player.setPosition(practice ? 216 : 175, FLOOR);
       this.player.body.reset(this.player.x, FLOOR);
       this.player.body.setVelocity(0, 0);
       this.bossLabel.setVisible(true);
-      this.setMessage(practice ? '守衛登場：橫斬可格擋；出手前約 0.4 秒內正面近身按 E 可彈反。' : 'Boss 戰開始：先處理可格擋橫斩，再學投射物與突進。');
+      this.setMessage(practice ? '裂隙巫妖登场：看清法术圈、分层魂火和落点符印，移动与跳躍都能創造安全窗口。' : '幽影守卫精英登场：击败它后，裂隙巫妖将从裂隙现身。');
+    }
+
+    setBossAppearance() {
+      if (this.boss.encounter === 'rift') {
+        this.bossSprite.setVisible(false).setAngle(0);
+        this.riftArt.setVisible(true);
+        this.bossLabel.setColor('#d9bbff');
+      } else {
+        this.riftArt.clear().setVisible(false);
+        this.bossSprite.setTexture('Idle', 'Idle0000').setOriginFromFrame().setScale(1.2).setTint(0xe7798e).setVisible(true);
+        this.bossLabel.setColor('#f5dfcf');
+      }
+    }
+
+    playBossAnimation(animation) {
+      if (this.boss.encounter === 'rift') {
+        this.bossArtPose = animation;
+        this.bossSprite.setVisible(false).setAngle(0);
+        return;
+      }
+      this.bossSprite.setTint(this.boss.encounter === 'rift' ? this.riftBossTint() : 0xe7798e);
+      this.bossSprite.setAngle(0);
+      this.bossSprite.play(animation, true);
+    }
+
+    riftBossTint() {
+      return this.boss.phase === 4 ? 0x9865c4 : this.boss.phase === 3 ? 0x7954a6 : this.boss.phase === 2 ? 0x684895 : 0x5d407f;
+    }
+
+    drawFinalBoss() {
+      const aura = this.bossAura;
+      const gear = this.bossAdornment;
+      const art = this.riftArt;
+      aura.clear();
+      gear.clear();
+      art.clear();
+      if (this.room !== 'boss' || this.boss.encounter !== 'rift' || this.boss.mode === 'hidden' || this.boss.hp <= 0) return;
+
+      const x = this.bossSprite.x;
+      const bob = Math.sin(this.elapsed * 2.7) * 7;
+      const pulse = 0.75 + Math.sin(this.elapsed * 3.7) * 0.12;
+      const phaseColor = this.boss.phase === 4 ? 0xff9af4 : this.boss.phase === 3 ? 0xc78cff : 0x9e77f5;
+      const cast = this.boss.mode === 'tell' || this.boss.mode === 'active';
+      const reach = this.boss.mode === 'tell' ? 1.12 : this.boss.mode === 'active' ? 1.06 : 1;
+      const base = FLOOR - 38 + bob;
+      const headY = FLOOR - 286 + bob;
+      const flare = this.boss.hurtTimer > 0 ? 0xffddfb : phaseColor;
+
+      aura.fillStyle(0x35174f, 0.3).fillCircle(x, FLOOR - 184 + bob, 136 * pulse);
+      aura.lineStyle(5, phaseColor, 0.3 + pulse * 0.18).strokeCircle(x, FLOOR - 194 + bob, 108 + Math.sin(this.elapsed * 1.3) * 7);
+      aura.lineStyle(2, 0xe7d4ff, 0.34).strokeCircle(x, FLOOR - 194 + bob, 84);
+      aura.lineStyle(1, phaseColor, 0.56).beginPath();
+      for (let i = 0; i < 8; i += 1) {
+        const angle = this.elapsed * 0.3 + i * Math.PI / 4;
+        const sx = x + Math.cos(angle) * 106;
+        const sy = FLOOR - 194 + bob + Math.sin(angle) * 106;
+        aura.lineBetween(sx, sy, sx + Math.cos(angle) * 16, sy + Math.sin(angle) * 16);
+        aura.fillStyle(i % 2 ? 0xeee0ff : phaseColor, 0.76).fillCircle(sx, sy, 3);
+        const runeX = x + Math.cos(angle + Math.PI / 8) * 128;
+        const runeY = FLOOR - 194 + bob + Math.sin(angle + Math.PI / 8) * 128;
+        aura.lineStyle(2, 0xe9d6ff, 0.48).lineBetween(runeX - 5, runeY, runeX + 5, runeY);
+        aura.lineBetween(runeX, runeY - 5, runeX, runeY + 5);
+      }
+
+      art.fillStyle(0x0c0914, 0.96).fillPoints([
+        { x: x - 45, y: FLOOR - 254 + bob }, { x: x - 91 * reach, y: FLOOR - 205 + bob },
+        { x: x - 68, y: base - 62 }, { x: x - 112, y: base - 14 },
+        { x: x - 68, y: base - 22 }, { x: x - 38, y: base + 2 },
+        { x: x, y: base - 24 }, { x: x + 42, y: base + 4 },
+        { x: x + 73, y: base - 25 }, { x: x + 108, y: base - 8 },
+        { x: x + 71, y: base - 75 }, { x: x + 47, y: FLOOR - 254 + bob },
+      ], true);
+      art.fillStyle(0x292039, 0.98).fillPoints([
+        { x: x - 39, y: FLOOR - 252 + bob }, { x: x - 70, y: FLOOR - 203 + bob },
+        { x: x - 45, y: base - 24 }, { x: x - 8, y: base - 40 },
+        { x: x + 25, y: base - 26 }, { x: x + 65, y: FLOOR - 201 + bob },
+        { x: x + 39, y: FLOOR - 252 + bob },
+      ], true);
+      art.fillStyle(0x5d3976, 0.82).fillPoints([
+        { x: x - 37, y: FLOOR - 245 + bob }, { x: x - 7, y: FLOOR - 227 + bob },
+        { x: x - 17, y: base - 45 }, { x: x - 42, y: base - 14 },
+      ], true);
+      art.fillStyle(0x5d3976, 0.82).fillPoints([
+        { x: x + 18, y: FLOOR - 231 + bob }, { x: x + 40, y: FLOOR - 249 + bob },
+        { x: x + 60, y: base - 22 }, { x: x + 39, y: base - 4 },
+      ], true);
+      art.fillStyle(0x39314a, 0.98).fillPoints([
+        { x: x - 42, y: FLOOR - 243 + bob }, { x: x - 72 * reach, y: FLOOR - 252 + bob },
+        { x: x - 84 * reach, y: FLOOR - 220 + bob }, { x: x - 56, y: FLOOR - 198 + bob },
+        { x: x - 30, y: FLOOR - 213 + bob },
+      ], true);
+      art.fillStyle(0x39314a, 0.98).fillPoints([
+        { x: x + 39, y: FLOOR - 243 + bob }, { x: x + 70 * reach, y: FLOOR - 253 + bob },
+        { x: x + 85 * reach, y: FLOOR - 219 + bob }, { x: x + 56, y: FLOOR - 197 + bob },
+        { x: x + 30, y: FLOOR - 213 + bob },
+      ], true);
+      art.lineStyle(3, 0xb49ac8, 0.86).lineBetween(x - 60, FLOOR - 241 + bob, x - 39, FLOOR - 217 + bob);
+      art.lineBetween(x + 61, FLOOR - 241 + bob, x + 39, FLOOR - 217 + bob);
+      art.fillStyle(0x17101f, 0.98).fillPoints([
+        { x: x - 26, y: FLOOR - 239 + bob }, { x: x, y: FLOOR - 224 + bob },
+        { x: x + 27, y: FLOOR - 240 + bob }, { x: x + 22, y: FLOOR - 200 + bob },
+        { x: x, y: FLOOR - 186 + bob }, { x: x - 23, y: FLOOR - 201 + bob },
+      ], true);
+      art.lineStyle(3, 0xd0bfdc, 0.88).lineBetween(x, FLOOR - 221 + bob, x, FLOOR - 188 + bob);
+      for (let rib = 0; rib < 4; rib += 1) {
+        const ribY = FLOOR - 218 + bob + rib * 8;
+        art.lineStyle(2, 0xc5b8d2, 0.78).beginPath();
+        art.moveTo(x - 5, ribY).lineTo(x - 18, ribY + 3).lineTo(x - 23, ribY + 7);
+        art.moveTo(x + 5, ribY).lineTo(x + 18, ribY + 3).lineTo(x + 23, ribY + 7).strokePath();
+      }
+      art.fillStyle(phaseColor, 0.94).fillPoints([
+        { x: x, y: FLOOR - 238 + bob }, { x: x + 8, y: FLOOR - 226 + bob },
+        { x: x, y: FLOOR - 214 + bob }, { x: x - 8, y: FLOOR - 226 + bob },
+      ], true);
+      art.lineStyle(3, 0xb8a3ca, 0.86).lineBetween(x - 32, FLOOR - 189 + bob, x + 32, FLOOR - 189 + bob);
+      art.fillStyle(0x8d6ea5, 0.94).fillCircle(x, FLOOR - 189 + bob, 6);
+      art.fillStyle(0x100d19, 1).fillPoints([
+        { x: x - 42, y: headY + 40 }, { x: x - 52, y: headY + 9 },
+        { x: x - 38, y: headY - 22 }, { x: x - 17, y: headY - 39 },
+        { x: x + 17, y: headY - 39 }, { x: x + 41, y: headY - 16 },
+        { x: x + 49, y: headY + 15 }, { x: x + 31, y: headY + 39 },
+      ], true);
+      art.fillStyle(0xc7bed2, this.boss.hurtTimer > 0 ? 1 : 0.95).fillPoints([
+        { x: x - 30, y: headY + 26 }, { x: x - 34, y: headY + 4 },
+        { x: x - 22, y: headY - 17 }, { x: x - 7, y: headY - 25 },
+        { x: x + 18, y: headY - 20 }, { x: x + 30, y: headY + 1 },
+        { x: x + 23, y: headY + 25 }, { x: x + 9, y: headY + 34 },
+        { x: x - 12, y: headY + 34 },
+      ], true);
+      art.fillStyle(0x24192e, 1).fillTriangle(x - 27, headY + 1, x - 4, headY - 5, x - 20, headY + 13);
+      art.fillStyle(0x24192e, 1).fillTriangle(x + 5, headY - 5, x + 28, headY + 1, x + 18, headY + 13);
+      art.fillStyle(flare, 0.98).fillCircle(x - 16, headY + 3, 5);
+      art.fillStyle(flare, 0.98).fillCircle(x + 17, headY + 3, 5);
+      art.fillStyle(0x392941, 0.95).fillTriangle(x, headY + 5, x - 5, headY + 20, x + 5, headY + 20);
+      art.lineStyle(3, 0x493458, 0.95).lineBetween(x - 15, headY + 27, x + 14, headY + 27);
+      art.lineStyle(2, 0x41354d, 0.95).lineBetween(x - 26, headY + 15, x - 18, headY + 25);
+      art.lineBetween(x + 26, headY + 15, x + 18, headY + 25);
+      for (let tooth = -2; tooth <= 2; tooth += 1) {
+        art.lineStyle(1, 0xeee4f2, 0.86).lineBetween(x + tooth * 5, headY + 27, x + tooth * 5, headY + 32);
+      }
+
+      art.lineStyle(8, 0x4d395e, 0.98).beginPath();
+      art.moveTo(x - 34, headY - 26).lineTo(x - 48, headY - 45).lineTo(x - 54, headY - 74)
+        .lineTo(x - 36, headY - 58).lineTo(x - 22, headY - 43).lineTo(x, headY - 64)
+        .lineTo(x + 21, headY - 43).lineTo(x + 40, headY - 60).lineTo(x + 52, headY - 76)
+        .lineTo(x + 48, headY - 43).lineTo(x + 34, headY - 25).strokePath();
+      art.lineStyle(3, 0xd8c3ed, 0.92).lineBetween(x - 1, headY - 62, x - 2, headY - 43);
+      art.fillStyle(0xf4d7ff, 0.9).fillCircle(x, headY - 63, 5);
+
+      const orbX = x + 75;
+      const orbY = FLOOR - 224 + bob + (cast ? -16 : Math.sin(this.elapsed * 2) * 7);
+      art.lineStyle(10, 0x21192a, 0.98).beginPath();
+      art.moveTo(x + 36, FLOOR - 221 + bob).lineTo(x + 53, FLOOR - 204 + bob).lineTo(orbX - 10, orbY + 7).strokePath();
+      art.lineStyle(4, 0xa99abb, 0.94).lineBetween(x + 38, FLOOR - 220 + bob, orbX - 10, orbY + 7);
+      art.lineStyle(3, 0xdfd1e9, 0.92).lineBetween(x + 47, FLOOR - 212 + bob, orbX - 8, orbY + 2);
+      art.lineStyle(3, 0xdfd1e9, 0.92).lineBetween(x + 51, FLOOR - 205 + bob, orbX - 5, orbY + 8);
+      art.lineStyle(3, 0xdfd1e9, 0.92).lineBetween(x + 54, FLOOR - 198 + bob, orbX - 10, orbY + 14);
+      art.fillStyle(0x28183a, 0.98).fillCircle(orbX, orbY, cast ? 25 : 19);
+      art.fillStyle(flare, 0.88).fillCircle(orbX, orbY, cast ? 14 : 10);
+      art.lineStyle(2, 0xdcc4ff, 0.75).strokeCircle(orbX, orbY, cast ? 31 : 24);
+      for (let i = 0; i < 4; i += 1) {
+        const angle = this.elapsed * 1.5 + i * Math.PI / 2;
+        art.fillStyle(0xe9cfff, 0.84).fillCircle(orbX + Math.cos(angle) * 28, orbY + Math.sin(angle) * 28, 3);
+      }
+      for (let i = 0; i < 5; i += 1) {
+        const chainX = x - 67 + i * 31;
+        const chainY = FLOOR - 110 + bob + Math.sin(this.elapsed * 2 + i) * 5;
+        art.lineStyle(2, 0xa288b2, 0.54).lineBetween(chainX, chainY - 19, chainX + Math.sin(i + this.elapsed) * 4, chainY + 8);
+        art.fillStyle(0xcfc1dd, 0.7).fillCircle(chainX, chainY + 9, 2);
+      }
+      gear.lineStyle(2, phaseColor, 0.78).strokeCircle(x, FLOOR - 194 + bob, 54);
+      gear.lineStyle(1, 0xe8d5ff, 0.72).lineBetween(x - 18, FLOOR - 194 + bob, x + 18, FLOOR - 194 + bob);
+      gear.lineStyle(1, 0xe8d5ff, 0.72).lineBetween(x, FLOOR - 212 + bob, x, FLOOR - 176 + bob);
+    }
+
+    showRiftStory() {
+      this.status = 'story';
+      this.physics.world.pause();
+      this.story.stage = 'narrative';
+      document.querySelector('#overlay').classList.add('hidden');
+      document.querySelector('#storyNarrative').hidden = false;
+      document.querySelector('#storyChoice').hidden = true;
+      document.querySelector('#storyOverlay').hidden = false;
+      document.querySelector('#statusDot').classList.remove('live');
+    }
+
+    showStoryChoice() {
+      if (this.status !== 'story') return;
+      this.story.stage = 'choice';
+      document.querySelector('#storyNarrative').hidden = true;
+      document.querySelector('#storyChoice').hidden = false;
+      document.querySelector('#challengeRiftBtn').focus();
+    }
+
+    skipStory() {
+      if (this.status === 'story' && this.story.stage === 'narrative') this.showStoryChoice();
+    }
+
+    acceptRiftChallenge() {
+      if (this.status !== 'story' || this.story.stage !== 'choice') return;
+      document.querySelector('#storyOverlay').hidden = true;
+      this.status = 'run';
+      this.physics.world.resume();
+      this.enterRiftLord();
+    }
+
+    declineRiftChallenge() {
+      if (this.status !== 'story' || this.story.stage !== 'choice') return;
+      document.querySelector('#storyOverlay').hidden = true;
+      this.status = 'leave';
+      this.physics.world.pause();
+      document.querySelector('#overlayTitle').textContent = '你暂缓追入裂隙';
+      document.querySelector('#overlayText').textContent = '幽影峡谷暂时恢复了寂静。裂隙仍在远处等待；你可以重新挑战整段试炼，或直接进入幕后黑手的战场。';
+      document.querySelector('#startBtn').innerHTML = '重新进入峡谷 <b>↻</b>';
+      document.querySelector('#bossBtn').innerHTML = '之后直面巫妖 <b>↗</b>';
+      document.querySelector('#resultSummary').hidden = true;
+      document.querySelector('#overlay').classList.remove('hidden');
     }
 
     update(time, delta) {
@@ -402,6 +713,7 @@
       this.updateProjectiles(dt);
       this.updateBoss(dt);
       this.updateEffects(dt);
+      this.drawFinalBoss();
       this.updateTelegraph();
       this.drawPlayerDefense();
       this.drawBossBars();
@@ -476,6 +788,7 @@
 
       if (guardHeld && !blocking && p.stamina <= 0 && p.guardBreak <= 0) {
         p.guardBreak = 0.42;
+        this.playSfx('sfx_guard_break', 0.34);
         this.setMessage('耐力耗尽：格挡破防，暂时不能防守。');
       }
       if (blocking) {
@@ -489,7 +802,7 @@
       if (p.ultimateTimer > 0) {
         this.player.play('hero-attack', true);
       } else if (p.hurtTimer > 0) {
-        this.player.play('hero-idle', true);
+        this.player.play('hero-hurt', true);
       } else if (p.guardBreak > 0) {
         this.player.play('hero-jump', true);
       } else if (p.parryAnim > 0) {
@@ -500,8 +813,9 @@
         else if (Math.abs(this.player.body.velocity.x) > 25) this.player.play('hero-run', true);
         else this.player.play('hero-idle', true);
       }
-      if (p.hurtTimer > 0) this.player.setTint(0xffded0);
-      else if (p.ultimateTimer > 0) this.player.setTint(0xffd77a);
+      // 受击白闪已烘焙进 hero-hurt 序列帧（冲击帧整帧白化），
+      // 这里不再叠加 tint，否则 0.42s 内会被双重染色、盔甲细节全糊。
+      if (p.ultimateTimer > 0) this.player.setTint(0xffd77a);
       else this.player.clearTint();
 
       if (this.room !== 'boss' && this.player.x > 882 && this.entities.length === 0) {
@@ -550,6 +864,8 @@
       const move = ATTACKS[index];
       p.comboIndex = index;
       p.attack = { ...move, timer: 0, hit: false, queued: false, index, facing: p.facing };
+      // 三段连击各有一版音高递增的挥砍声，听感上能分辨连段进度
+      this.playSfx(`sfx_slash_${index + 1}`, 0.30);
       this.player.play(move.anim, true);
       p.attackCooldown = 0.13;
     }
@@ -618,6 +934,7 @@
         const enemy = this.entities.find((item) => !item.dead && item.sprite === target.sprite);
         if (!enemy) return;
         enemy.hp -= attack.damage;
+        this.playSfx('sfx_hit_flesh', 0.32);
         enemy.hurtTimer = 0.16;
         enemy.sprite.body.setVelocityX(0);
         enemy.sprite.play('knight-impact', true);
@@ -725,6 +1042,7 @@
 
     killEnemy(enemy) {
       enemy.dead = true;
+      this.playSfx('sfx_enemy_death', 0.34);
       enemy.sprite.body.enable = false;
       enemy.sprite.play('knight-death', true);
       this.stats.enemyKills += 1;
@@ -734,17 +1052,22 @@
     }
 
     spawnProjectile(x, y, direction, speed, damage, source) {
-      const color = source === '影弩' ? 0xe6a06c : 0xe17d9b;
+      const color = source === '影弩' ? 0xe6a06c : source === '追魂冥火' ? 0xb98cff : 0xe17d9b;
+      if (source === '追魂冥火') this.playSfx('sfx_soulfire', 0.30);
       const glow = this.add.ellipse(x, y, 38, 22, color, 0.25).setDepth(13);
-      const core = this.add.circle(x, y, 8, color, 0.95).setDepth(14);
-      this.projectiles.push({ x, y, direction, speed, damage, source, age: 0, core, glow, color });
+      // 追魂冥火换成序列帧球体；影弩保留原来的纯色圆点样式。
+      const soul = source === '追魂冥火';
+      const core = soul ? null : this.add.circle(x, y, 8, color, 0.95).setDepth(14);
+      const fx = soul ? this.add.sprite(x, y, 'fx_soulfire', 0).setDepth(14).setScale(0.66).play('fx-soulfire') : null;
+      this.projectiles.push({ x, y, direction, speed, damage, source, age: 0, core, fx, glow, color });
     }
 
     updateProjectiles(dt) {
       for (const shot of this.projectiles) {
         shot.age += dt;
         shot.x += shot.direction * shot.speed * dt;
-        shot.core.setPosition(shot.x, shot.y);
+        if (shot.core) shot.core.setPosition(shot.x, shot.y);
+        if (shot.fx) shot.fx.setPosition(shot.x, shot.y);
         shot.glow.setPosition(shot.x, shot.y);
         shot.glow.setScale(1 + Math.sin(shot.age * 17) * 0.08);
         if (shot.age > 4 || shot.x < 20 || shot.x > WIDTH - 20) {
@@ -754,11 +1077,15 @@
         const close = Math.abs(shot.x - this.player.x) < 29 && Math.abs(shot.y - (this.player.y - 72)) < 48;
         if (close) {
           const result = this.resolveIncoming({ source: shot.source, damage: shot.damage, attackerX: shot.x - shot.direction * 18, range: 65, guardable: true, parryable: false, parryRange: 0 });
-          if (result !== 'none') shot.dead = true;
+          if (result !== 'none') {
+            shot.dead = true;
+            this.playSfx('sfx_soulfire_hit', 0.28);
+            this.spawnFx('fx-soulfire-hit', 'fx_soulfire_hit', shot.x, shot.y, 0.7, 25);
+          }
         }
       }
       for (const shot of this.projectiles) {
-        if (shot.dead) { shot.core.destroy(); shot.glow.destroy(); }
+        if (shot.dead) this.clearProjectile(shot);
       }
       this.projectiles = this.projectiles.filter((shot) => !shot.dead);
     }
@@ -772,15 +1099,15 @@
       // P4 残血回血（反拖延机制）：停止攻击超过 4 秒，Boss 汲取暗影之力回血
       b.regenIdle = (b.regenIdle || 0) + dt;
       b.regenFxTimer = Math.max(0, (b.regenFxTimer || 0) - dt);
-      const REGEN_CAP = BOSS_MAX_HP * 0.38; // 回血上限 228 血，不会退回 P3
-      if (b.phase === 4 && b.regenIdle > 4 && b.hp < REGEN_CAP && b.mode !== 'transition' && b.mode !== 'intro' && b.mode !== 'broken') {
+      const REGEN_CAP = b.maxHp * 0.38;
+      if (b.encounter === 'rift' && b.phase === 4 && b.regenIdle > 4 && b.hp < REGEN_CAP && b.mode !== 'transition' && b.mode !== 'intro' && b.mode !== 'broken') {
         const before = b.hp;
         b.hp = Math.min(REGEN_CAP, b.hp + 14 * dt);
         if (b.regenFxTimer <= 0) {
           b.regenFxTimer = 0.28;
           this.spawnBurst(b.x || this.bossSprite.x, FLOOR - 112, 0xff4d4d, 8);
           this.floatText(this.bossSprite.x, FLOOR - 224, `+${Math.round(b.hp - before) || 1}`, '#ff7a7a');
-          this.setMessage('幽影守衛正在汲取暗影之力回血！快攻擊它打斷回復！');
+          this.setMessage('裂隙巫妖正在汲取暗影之力回血！快攻擊它打斷回復！');
         }
       }
 
@@ -788,10 +1115,12 @@
         b.timer -= dt;
         if (b.timer <= 0) {
           b.mode = 'idle';
-          b.timer = 0.55;
+          b.timer = 0.8;
           b.sequence = 0;
-          this.bossSprite.play('knight-idle', true);
-          this.setMessage('P1 教學：横斩前摇清楚；格挡减伤，弹反需正面贴近。');
+          b.slashCount = 0;
+          b.slashTempo = 'slow';
+          this.playBossAnimation('knight-idle');
+          this.setMessage(b.encounter === 'elite' ? '精英戰：幽影橫斬可格擋；正面近身抓準時機按 E 彈反。' : '裂隙巫妖現身：留意靈魂震爆、追魂冥火與地面亡魂印。');
         }
         return;
       }
@@ -801,12 +1130,12 @@
       if (b.mode === 'idle' || b.mode === 'recover') {
         b.facing = facing;
         this.bossSprite.setFlipX(facing < 0);
-        if (b.mode === 'idle' && Math.abs(dx) > 244) {
-          this.bossSprite.body && this.bossSprite.body.setVelocityX(facing * 115);
-          this.bossSprite.x = clamp(this.bossSprite.x + facing * 104 * dt, 90, 870);
-          this.bossSprite.play('knight-run', true);
+        if (b.encounter === 'elite' && b.mode === 'idle' && Math.abs(dx) > 218) {
+          this.bossSprite.body && this.bossSprite.body.setVelocityX(facing * 145);
+          this.bossSprite.x = clamp(this.bossSprite.x + facing * 138 * dt, 90, 870);
+          this.playBossAnimation('knight-run');
         } else {
-          this.bossSprite.play('knight-idle', true);
+          this.playBossAnimation('knight-idle');
         }
       }
 
@@ -815,66 +1144,91 @@
         if (b.timer <= 0) this.startBossMove();
       } else if (b.mode === 'tell') {
         b.timer -= dt;
-        if (b.move === 'rush' && b.timer < 0.42) this.bossSprite.play('knight-run', true);
-        else if (b.move === 'wave' && b.timer < 0.7) this.bossSprite.play('knight-powerup', true);
+        if (b.encounter === 'rift') this.playBossAnimation('knight-powerup');
+        else if (b.move === 'rush' && b.timer < 0.42) this.playBossAnimation('knight-run');
+        else if (b.move === 'wave' && b.timer < 0.7) this.playBossAnimation('knight-powerup');
         if (b.timer <= 0) {
           b.mode = 'active';
-          b.timer = BOSS_MOVES[b.move].active;
+          b.timer = b.moveActive;
           b.hitResolved = false;
           b.rushHit = false;
-          if (b.move === 'slash') this.bossSprite.play('knight-slash3-swing', true);
+          if (b.move === 'slash' && b.encounter === 'elite') this.playBossAnimation('knight-slash3-swing');
           if (b.move === 'shot') {
             const distanceToPlayer = Math.abs(this.player.x - this.bossSprite.x);
             const spawnOffset = Math.min(55, Math.max(0, distanceToPlayer - 12));
-            this.spawnProjectile(this.bossSprite.x + b.facing * spawnOffset, FLOOR - 100, b.facing, 315, 18, '暗影投射物');
+            const moveDef = this.bossMoves().shot;
+            const originX = this.bossSprite.x + b.facing * spawnOffset;
+            if (b.encounter === 'rift') {
+              const lanes = b.phase >= 3 ? [FLOOR - 72, FLOOR - 132, FLOOR - 192] : [FLOOR - 72, FLOOR - 146];
+              lanes.forEach((laneY, index) => this.spawnProjectile(originX, laneY, b.facing, 285 + index * 48, moveDef.damage, moveDef.label));
+            } else {
+              this.spawnProjectile(originX, FLOOR - 100, b.facing, 345, moveDef.damage, moveDef.label);
+            }
             b.hitResolved = true;
             this.updateMoveCard('shot', '飞行中');
           }
-          if (b.move === 'wave') this.bossSprite.play('knight-attack1', true);
+          if (b.move === 'wave' && b.encounter === 'elite') this.playBossAnimation('knight-attack1');
         }
       } else if (b.mode === 'active') {
         b.timer -= dt;
         if (b.move === 'rush') {
-          const direction = Math.sign(b.targetX - this.bossSprite.x);
-          const step = Math.min(Math.abs(b.targetX - this.bossSprite.x), 640 * dt);
-          b.facing = direction || b.facing;
-          this.bossSprite.setFlipX(b.facing < 0);
-          this.bossSprite.x += direction * step;
-          if (b.ghostTimer <= 0) {
-            b.ghostTimer = 0.07;
-            this.spawnAfterImage(this.bossSprite, 0xc87491, 0.23);
-          }
-          if (!b.hitResolved && Math.abs(this.bossSprite.x - this.player.x) <= BOSS_MOVES.rush.range + 20 && Math.sign(this.player.x - this.bossSprite.x || 1) === b.facing) {
-            b.hitResolved = true;
-            this.resolveBossMove('rush');
-          }
-          if (b.timer <= 0 && !b.hitResolved) {
-            b.hitResolved = true;
-            this.stats.bossWhiffs += 1;
-            this.stats.bossWhiffsByMove.rush += 1;
-            this.setMessage('突進落空：Boss 沒有碰到你，方向鎖定後不會修正路徑。');
+          if (b.encounter === 'rift') {
+            if (!b.hitResolved && !b.rushHit && b.timer <= b.moveActive * 0.58) {
+              b.rushHit = true;
+              b.hitResolved = true;
+              this.spawnBurst(b.targetX, FLOOR - 111, 0xc18aff, 22);
+              this.bossSprite.x = b.targetX;
+              this.bossShadow.x = b.targetX;
+              this.resolveBossMove('rush');
+            }
+            if (b.timer <= 0 && !b.hitResolved) {
+              b.hitResolved = true;
+              this.stats.bossWhiffs += 1;
+              this.stats.bossWhiffsByMove.rush += 1;
+            }
+          } else {
+            const direction = Math.sign(b.targetX - this.bossSprite.x);
+            const step = Math.min(Math.abs(b.targetX - this.bossSprite.x), 640 * dt);
+            b.facing = direction || b.facing;
+            this.bossSprite.setFlipX(b.facing < 0);
+            this.bossSprite.x += direction * step;
+            if (b.ghostTimer <= 0) {
+              b.ghostTimer = 0.07;
+              this.spawnAfterImage(this.bossSprite, 0xc87491, 0.23);
+            }
+            if (!b.hitResolved && Math.abs(this.bossSprite.x - this.player.x) <= this.bossMoves().rush.range + 20 && Math.sign(this.player.x - this.bossSprite.x || 1) === b.facing) {
+              b.hitResolved = true;
+              this.resolveBossMove('rush');
+            }
+            if (b.timer <= 0 && !b.hitResolved) {
+              b.hitResolved = true;
+              this.stats.bossWhiffs += 1;
+              this.stats.bossWhiffsByMove.rush += 1;
+              this.setMessage('突進落空：Boss 沒有碰到你，方向鎖定後不會修正路徑。');
+            }
           }
         } else if (!b.hitResolved) {
           // 横斩等剑刃挥到水平（约 active 走过 58%）；震荡在 active 生效即判定
-          const hitThreshold = b.move === 'slash' ? BOSS_MOVES[b.move].active * 0.42 : BOSS_MOVES[b.move].active * 0.98;
+          const moveDef = this.bossMoves()[b.move];
+          const hitThreshold = b.move === 'slash' ? b.moveActive * 0.42 : b.moveActive * 0.98;
           if (b.timer <= hitThreshold) {
             b.hitResolved = true;
             this.resolveBossMove(b.move);
           }
         }
-        if (b.timer <= 0 && b.mode === 'active') this.beginBossRecovery(BOSS_MOVES[b.move].recover * this.phaseSpeed());
+        if (b.timer <= 0 && b.mode === 'active') this.beginBossRecovery(b.moveRecover * this.phaseSpeed());
       } else if (b.mode === 'recover') {
         b.timer -= dt;
         if (b.timer <= 0) {
           b.mode = 'idle';
-          b.timer = 0.32;
+          b.timer = b.encounter === 'elite' ? 0.46 : 0.62;
           b.move = '';
         }
       } else if (b.mode === 'broken') {
         b.timer -= dt;
         if (b.timer <= 0) {
           b.mode = 'idle';
-          b.timer = 0.22;
+          b.timer = b.encounter === 'elite' ? 0.46 : 0.62;
           b.move = '';
           b.posture = 0;
           this.setMessage('守衛恢復架勢；留意下一輪招式序列。');
@@ -883,19 +1237,22 @@
         b.timer -= dt;
         if (b.timer <= 0) {
           b.mode = 'idle';
-          b.timer = b.phase === 4 ? 0.25 : 0.45;
+          b.timer = 0.85;
           b.sequence = 0;
-          if (b.phase === 4) this.setMessage('P4 狂暴狀態：所有招術更快、連招更密；抓收招窗口輸出，不要貪刀。');
-          else if (b.phase === 2) this.setMessage('P2：突進加入。Boss 會先鎖定方向，不會途中追蹤。');
-          else this.setMessage('P3：地面震蕩加入；看地面範圍，跳起或去亮起的側區。');
+          if (b.phase === 4) {
+            b.slashCount = 0;
+            this.setMessage('P4：多重裂隙开启，魂火变为三层；慢、快灵魂震爆仍保持固定节奏交替。');
+          } else if (b.phase === 2) this.setMessage('P2：幽魂换位加入，传送落点会提前显现圆形符文。');
+          else this.setMessage('P3：亡魂印爆加入；紫色符印锁定你的位置，及时离开或跳起。');
         }
       }
     }
 
     debugSetPhase(phase) {
-      if (!this.godMode || this.status !== 'run') return;
+      if (!this.debugMode || this.status !== 'run') return;
+      if (this.room === 'boss' && this.boss.encounter !== 'rift') return;
       // 各阶段测试血量取区间中段，保证稳定落在该阶段
-      const testHp = { 1: 520, 2: 370, 3: 220, 4: 100 };
+      const testHp = { 1: 630, 2: 450, 3: 270, 4: 100 };
       if (this.room !== 'boss') {
         this.room = 'boss';
         this.roomIndex = 3;
@@ -910,22 +1267,18 @@
       b.move = '';
       b.hitResolved = true;
       b.regenIdle = 0;
-      this.bossSprite.setTint(phase === 4 ? 0xff3b3b : 0xe7798e);
       const music = document.querySelector('#bgm');
-      if (music) { music.playbackRate = phase === 4 ? 1.28 : 1.0; music.play().catch(() => {}); }
+      if (music) { music.playbackRate = 1.0; music.play().catch(() => {}); }
       this.setMessage(`【策划测试】已跳至 P${phase}，Boss 血量设为 ${testHp[phase]}。`);
     }
 
     phaseSpeed() {
-      // P4 狂暴：前摇/后摇整体压缩 35%；P3 略快；其他阶段正常
-      if (this.boss.phase === 4) return 0.65;
-      if (this.boss.phase === 3) return 0.88;
       return 1.0;
     }
 
     startBossMove() {
       const b = this.boss;
-      const patterns = PHASE_PATTERNS[b.phase];
+      const patterns = (b.encounter === 'rift' ? RIFT_PATTERNS : ELITE_PATTERNS)[b.phase];
       const sequenceLength = patterns[0].length;
       const cycle = Math.floor(b.sequence / sequenceLength);
       const pattern = patterns[cycle % patterns.length];
@@ -936,30 +1289,78 @@
       b.lastMove = move;
       b.move = move;
       b.mode = 'tell';
-      b.timer = BOSS_MOVES[move].tell * this.phaseSpeed();
+      const moveDef = this.bossMoves()[move];
+      b.slashTempo = move === 'slash' && b.encounter === 'rift'
+        ? (b.slashCount++ % 2 === 0 ? 'slow' : 'fast')
+        : '';
+      b.moveActive = move === 'slash' && b.slashTempo === 'slow' ? 0.22 : moveDef.active;
+      b.moveRecover = move === 'slash' && b.slashTempo === 'slow' ? 1.3 : move === 'slash' && b.encounter === 'rift' ? 0.95 : moveDef.recover;
+      const tell = move === 'slash' && b.slashTempo === 'slow' ? 1.45 : move === 'slash' && b.slashTempo === 'fast' ? 0.82 : moveDef.tell;
+      b.timer = tell * this.phaseSpeed();
       b.hitResolved = false;
+      // 预警音：本作核心是“看懂预警”，声音和视觉预警必须同时到
+      this.playSfx('sfx_boss_tell', 0.26);
+      if (move === 'wave') this.playSfx('sfx_rune_mark', 0.24);
+      b.rushHit = false;
       b.facing = Math.sign(this.player.x - this.bossSprite.x) || -1;
       const dashLimit = 295;
-      b.targetX = move === 'rush'
-        ? clamp(this.player.x, Math.max(90, this.bossSprite.x - dashLimit), Math.min(870, this.bossSprite.x + dashLimit))
+      b.moveRange = move === 'slash' && b.encounter === 'rift' ? (b.slashTempo === 'fast' ? 145 : moveDef.range) : moveDef.range;
+      b.targetX = move === 'rush' && b.encounter === 'rift'
+        ? clamp(this.player.x - b.facing * 150, 120, 840)
+        : move === 'rush'
+          ? clamp(this.player.x, Math.max(90, this.bossSprite.x - dashLimit), Math.min(870, this.bossSprite.x + dashLimit))
         : clamp(this.player.x, 90, 870);
+      b.sealX = clamp(this.player.x, 90, 870);
+      if (move === 'wave' && b.encounter === 'rift') {
+        // 蓄力段 8 帧 @6fps ≈ 1.33s，与 wave 的 tell(1.35s) 基本一致，
+        // 播完即自动销毁，正好在判定瞬间让位给 fx-rune-burst。
+        this.spawnFx('fx-rune-charge', 'fx_rune', b.sealX, FLOOR - 30, 1.05, 6);
+      }
+      if (move === 'rush' && b.encounter === 'rift') {
+        this.spawnFx('fx-rift', 'fx_rift', b.targetX, FLOOR - 104, 1, 9);
+      }
       this.bossSprite.setFlipX(b.facing < 0);
-      this.bossSprite.play(move === 'wave' ? 'knight-powerup' : 'knight-attack1', true);
-      this.setMessage(`${BOSS_MOVES[move].label}：${this.moveHint(move)}`);
-      this.updateMoveCard(move, '預警');
+      const slowSlash = move === 'slash' && b.slashTempo === 'slow';
+      this.playBossAnimation(b.encounter === 'rift' || move === 'wave' || slowSlash ? 'knight-powerup' : 'knight-attack1');
+      const tempoHint = move === 'slash' && b.encounter === 'rift' ? `${b.slashTempo === 'slow' ? '慢速大范围震爆：尽早拉开。' : '快速小范围震爆：及时退开或跳起。'} ` : '';
+      this.setMessage(`${tempoHint}${moveDef.label}：${this.moveHint(move)}`);
+      this.updateMoveCard(move, move === 'slash' && b.encounter === 'rift' ? (b.slashTempo === 'slow' ? '慢速震爆' : '快速震爆') : '预警');
+    }
+
+    bossMoves() {
+      return this.boss.encounter === 'rift' ? RIFT_MOVES : ELITE_MOVES;
     }
 
     moveHint(move) {
-      if (move === 'slash') return '正面靠近即可格擋；出手前約 0.4 秒按 E 可彈反。';
-      if (move === 'shot') return '投射物不接受彈反；跳/閃避，或面向它格擋。';
-      if (move === 'rush') return '突進方向已鎖定；跳過路徑、閃避，或在近身按 E。';
-      return '不可格擋：跳起越過地面波，或進入兩側高亮安全區。';
+      if (move === 'slash') return this.boss.encounter === 'rift' ? `靈魂震爆向周圍擴散，${this.boss.slashTempo === 'slow' ? '長蓄力、大範圍' : '短蓄力、小範圍'}；拉開距離、跳躍或近身彈反。` : '正面靠近即可格擋；出手前約 0.4 秒按 E 可彈反。';
+      if (move === 'shot') return this.boss.encounter === 'rift' ? '裂隙放出多道分層冥火；觀察高度，移動或跳躍穿過彈幕。' : '投射物不接受彈反；跳/閃避，或面向它格擋。';
+      if (move === 'rush') return this.boss.encounter === 'rift' ? '幽魂換位會標記傳送落點；離開落點圓環避開衝擊。' : '突進方向已鎖定；跳過路徑、閃避，或在近身按 E。';
+      return this.boss.encounter === 'rift' ? '亡魂印鎖定腳下位置後爆發；走出紫色符印或跳起避開。' : '不可格擋：跳起越過地面波，或進入兩側高亮安全區。';
     }
 
     resolveBossMove(move) {
       const b = this.boss;
-      const def = BOSS_MOVES[move];
+      const def = this.bossMoves()[move];
+      // 出手音与上面的预警音成对，形成“预备→释放”的听觉对比
+      const release = { slash: 'sfx_soulburst', shot: 'sfx_soulfire', rush: 'sfx_shift', wave: 'sfx_rune_burst' }[move];
+      if (release) this.playSfx(release, 0.34);
       if (move === 'slash') {
+        if (b.encounter === 'rift') {
+          const distance = Math.abs(this.player.x - this.bossSprite.x);
+          const range = b.slashTempo === 'fast' ? 145 : def.range;
+          this.spawnBurst(this.bossSprite.x, FLOOR - 125, b.slashTempo === 'fast' ? 0xffbf86 : 0xb994ff, 20);
+          // 序列帧环按实际判定半径缩放，保证画面读到的范围和 hitbox 一致
+          this.spawnFx('fx-soulburst', 'fx_soulburst', this.bossSprite.x, FLOOR - 24, range / 58, 9);
+          if (distance <= range && this.isPlayerGrounded()) {
+            this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.bossSprite.x, range, guardable: true, parryable: true, parryRange: 150 });
+          } else {
+            this.stats.bossWhiffs += 1;
+            this.stats.bossWhiffsByMove.slash += 1;
+            this.playerState.energy = Math.min(100, this.playerState.energy + 8);
+            this.setMessage(this.isPlayerAirborne() ? '跃起避開靈魂震爆：成功利用高度规避。' : '靈魂震爆未及遠處：趁巫妖收招反擊。');
+          }
+          return;
+        }
         const inFront = Math.sign(this.player.x - this.bossSprite.x || 1) === b.facing;
         if (inFront && Math.abs(this.player.x - this.bossSprite.x) <= def.range && this.isPlayerGrounded()) {
           this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.bossSprite.x, range: def.range, guardable: true, parryable: true, parryRange: 150 });
@@ -972,19 +1373,46 @@
         // The shot itself resolves on contact. The warning line and projectile use this locked direction.
         this.updateMoveCard('shot', '飛行中');
       } else if (move === 'rush') {
+        if (b.encounter === 'rift') {
+          if (Math.abs(this.player.x - this.bossSprite.x) <= def.range && this.isPlayerGrounded()) {
+            this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.bossSprite.x, range: def.range, guardable: false, parryable: false, parryRange: 0 });
+          } else {
+            this.stats.bossWhiffs += 1;
+            this.stats.bossWhiffsByMove.rush += 1;
+            this.playerState.energy = Math.min(100, this.playerState.energy + 8);
+            this.setMessage('成功避开幽魂换位冲击：巫妖在传送后露出破绽。');
+          }
+          return;
+        }
         const inFront = Math.sign(this.player.x - this.bossSprite.x || 1) === b.facing;
         if (inFront && Math.abs(this.player.x - this.bossSprite.x) <= def.range + 20 && this.isPlayerGrounded()) {
           this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.bossSprite.x, range: def.range + 20, guardable: false, parryable: true, parryRange: 150 });
         }
       } else if (move === 'wave') {
+        if (b.encounter === 'rift') {
+          const escaped = this.isPlayerAirborne() || Math.abs(this.player.x - b.sealX) > def.range;
+          this.spawnBurst(b.sealX, FLOOR - 24, 0xcf83ff, 18);
+          this.spawnFx('fx-rune-burst', 'fx_rune', b.sealX, FLOOR - 30, 1.05, 6);
+          if (escaped) {
+            this.stats.bossWhiffs += 1;
+            this.stats.bossWhiffsByMove.wave += 1;
+            this.playerState.energy = Math.min(100, this.playerState.energy + 10);
+            this.setMessage('亡魂印爆发：你已离开符印范围，规避成功。');
+            this.floatText(this.player.x, this.player.y - 126, '規避成功', '#c9b1fa');
+          } else {
+            this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.player.x, range: 0, guardable: false, parryable: false, parryRange: 0 });
+          }
+          return;
+        }
         const p = this.player;
         const safeLeft = p.x >= 52 && p.x <= 244;
         const safeRight = p.x >= 716 && p.x <= 916;
-        if (this.isPlayerAirborne() || safeLeft || safeRight) {
+        const safeRiftSide = this.boss.encounter === 'rift' && this.player.x >= 52 && this.player.x <= 244;
+        if (this.isPlayerAirborne() || (this.boss.encounter === 'rift' ? safeRiftSide : safeLeft || safeRight)) {
           this.stats.bossWhiffs += 1;
           this.stats.bossWhiffsByMove.wave += 1;
           this.playerState.energy = Math.min(100, this.playerState.energy + 10);
-          this.setMessage(this.isPlayerAirborne() ? '跳躍越過地面震蕩：成功讀懂高度解法。' : '進入亮起的側區：成功避開地面震蕩。');
+          this.setMessage(this.isPlayerAirborne() ? '跳躍越過地脈爆裂：成功讀懂高度解法。' : '進入亮起的側區：成功避開地脈爆裂。');
           this.floatText(p.x, p.y - 126, '規避成功', '#aee1bf');
         } else {
           this.resolveIncoming({ source: def.label, damage: def.damage, attackerX: this.bossSprite.x, range: 800, guardable: false, parryable: false, parryRange: 0, dodgeable: false });
@@ -997,7 +1425,7 @@
       b.mode = 'recover';
       b.timer = Math.max(0.72, duration);
       b.move = b.move || 'slash';
-      this.bossSprite.play('knight-impact2', true);
+      this.playBossAnimation('knight-impact2');
       this.setMessage('Boss 收招：完整傷害窗口，接一到兩段連擊後拉開距離。');
       this.updateMoveCard(b.move, '反擊窗口');
     }
@@ -1119,7 +1547,7 @@
       this.spawnBurst(this.player.x, this.player.y - 76, 0xe58b79, 10);
       this.floatText(this.player.x, this.player.y - 116, `-${damage}`, '#f29a85');
       this.setMessage(`${source} 命中：生命 -${damage}；受擊後有短暫保護時間。`);
-      this.player.play('hero-idle', true);
+      this.player.play('hero-hurt', true);
       if (p.hp <= 0) this.endRun(false);
     }
 
@@ -1140,6 +1568,7 @@
       if (this.status !== 'run' || p.dodgeCooldown > 0 || p.guardBreak > 0 || p.hurtTimer > 0 || p.ultimateTimer > 0 || p.attack) return;
       p.dodgeTimer = 0.25;
       p.dodgeCooldown = 0.72;
+      this.playSfx('sfx_dodge', 0.28);
       p.dodgeSuccessCounted = false;
       if (p.invuln <= 0.25) {
         p.invuln = 0.25;
@@ -1186,9 +1615,9 @@
       this.player.play('hero-attack', true);
       this.player.setTint(0xffe9a8);
       this.tweens.add({ targets: this.player, scaleX: 0.64 * 1.18, scaleY: 0.64 * 1.18, duration: 130, yoyo: true, ease: 'Quad.Out', onComplete: () => this.player.clearTint() });
-      // 双音效叠加：清脆确认音 + 破碎命中音
-      this.playSfx('sfx-parry', 0.42);
-      this.time.delayedCall(90, () => this.playSfx('sfx-hit', 0.38));
+      // 奥义：低频蓄力轰鸣 + 延迟的命中层，取代原来借用的界面音效
+      this.playSfx('sfx_ultimate', 0.45);
+      this.time.delayedCall(150, () => this.playSfx('sfx_hit_flesh', 0.34));
       // 金色全屏闪光 + 强震屏 + 短暂慢动作
       this.cameras.main.flash(200, 255, 214, 120);
       this.cameras.main.shake(260, 0.009);
@@ -1215,46 +1644,85 @@
       b.hp = Math.max(0, b.hp - damage);
       b.regenIdle = 0; // 命中打断回血
       b.hurtTimer = 0.15;
+      this.playSfx('sfx_boss_hurt', 0.26);
       b.posture = Math.min(100, b.posture + 5);
       this.bossSprite.setTint(0xffdfc4);
-      this.time.delayedCall(90, () => { if (this.bossSprite.active) this.bossSprite.setTint(0xe7798e); });
+      this.time.delayedCall(90, () => { if (this.bossSprite.active) this.boss.encounter === 'rift' ? this.bossSprite.clearTint() : this.bossSprite.setTint(0xe7798e); });
       this.spawnBurst(bossCenterX(this.bossSprite), FLOOR - 112, vulnerable ? 0xf3d4a0 : 0xb8cedb, vulnerable ? 12 : 7);
       this.floatText(this.bossSprite.x, FLOOR - 224, `-${damage}`, vulnerable ? '#f6d79f' : '#c9d6dc');
       this.cameras.main.shake(vulnerable ? 74 : 45, vulnerable ? 0.0022 : 0.0012);
       if (vulnerable) this.setMessage(`命中恢復中的Boss：-${damage}。這是完整輸出窗口。`);
       else this.setMessage(`命中Boss：-${damage}；招式收招時傷害更高。`);
-      const nextPhase = b.hp <= BOSS_MAX_HP * 1 / 4 ? 4 : b.hp <= BOSS_MAX_HP / 2 ? 3 : b.hp <= BOSS_MAX_HP * 3 / 4 ? 2 : 1;
-      if (nextPhase !== b.phase) this.transitionBossPhase(nextPhase);
+      if (b.hp <= 0) this.playSfx('sfx_boss_death', 0.5);
+      if (b.hp <= 0 && b.encounter === 'elite') {
+        this.showRiftStory();
+        return;
+      }
+      const nextPhase = b.hp <= b.maxHp / 4 ? 4 : b.hp <= b.maxHp / 2 ? 3 : b.hp <= b.maxHp * 3 / 4 ? 2 : 1;
+      if (b.encounter === 'rift' && nextPhase !== b.phase) this.transitionBossPhase(nextPhase);
       if (b.hp <= 0) this.endRun(true);
+    }
+
+    enterRiftLord() {
+      const b = this.boss;
+      for (const shot of this.projectiles) this.clearProjectile(shot);
+      this.projectiles = [];
+      b.encounter = 'rift';
+      b.maxHp = BOSS_MAX_HP;
+      b.hp = BOSS_MAX_HP;
+      b.phase = 1;
+      b.mode = 'intro';
+      b.timer = 2.1;
+      b.sequence = 0;
+      b.slashCount = 0;
+      b.slashTempo = 'slow';
+      b.lastMove = '';
+      b.posture = 0;
+      b.move = '';
+      b.hitResolved = true;
+      b.regenIdle = 0;
+      this.setBossAppearance();
+      this.bossSprite.setPosition(746, FLOOR).setFlipX(true).setAngle(0);
+      this.bossShadow.setFillStyle(0x211636, 0.68);
+      this.updateBossMoveCardCopy();
+      this.playSfx('sfx_boss_phase', 0.45);
+      this.cameras.main.flash(380, 115, 70, 190);
+      this.cameras.main.shake(300, 0.007);
+      this.spawnBurst(746, FLOOR - 130, 0xb374f5, 36);
+      this.bossLabel.setText('裂隙巫妖 · P1');
+      this.setMessage('精英幽影守卫被击败！裂隙开启——操纵暗影的巫妖现身，留意多层魂火与地面咒印。');
     }
 
     transitionBossPhase(phase) {
       const b = this.boss;
       b.phase = phase;
+      this.playSfx('sfx_boss_phase', 0.42);
       b.mode = 'transition';
       b.timer = 1.15;
       b.sequence = 0;
+      b.slashCount = 0;
       b.posture = Math.min(b.posture, 54);
       b.move = '';
       b.hitResolved = true;
-      this.bossSprite.play('knight-powerup', true);
+      this.playBossAnimation('knight-powerup');
       const flashColor = phase === 4 ? [180, 40, 50] : phase === 3 ? [150, 70, 90] : phase === 2 ? [92, 89, 132] : [129, 89, 132];
       this.cameras.main.flash(220, flashColor[0], flashColor[1], flashColor[2]);
-      // BGM 随阶段变速：P4 加速变调制造狂暴紧张感
+      // Keep the final phase tense without speeding up the attack read.
       const music = document.querySelector('#bgm');
       if (music) {
-        music.playbackRate = phase === 4 ? 1.28 : 1.0;
+        music.playbackRate = 1.0;
         music.volume = phase === 4 ? 0.9 : 0.6;
         music.play().catch(() => {});
       }
       if (phase === 4) {
-        this.bossSprite.setTint(0xff3b3b);
+        if (b.encounter === 'rift') this.bossSprite.setTint(0xc98aff);
+        else this.bossSprite.setTint(0xff3b3b);
         this.cameras.main.shake(260, 0.008);
-        this.setMessage('P4 狂暴：幽影守衛瀕死暴走！所有招式前摇缩短，連招更密集；彈反與閃避是唯一活路。');
+        this.setMessage('P4：巫妖开启第三道裂隙；魂火变为三层，震爆慢快交替，亡魂印继续锁定地面。');
       } else if (phase === 3) {
-        this.setMessage('P3 轉階：地面震蕩加入，讀取高亮安全區或跳躍。');
+        this.setMessage('P3 转阶：巫妖开始刻下亡魂印；离开锁定圆印，或在爆发前跳起。');
       } else if (phase === 2) {
-        this.setMessage('P2 轉階：突進加入，Boss 提前鎖定落點。');
+        this.setMessage('P2 转阶：幽魂换位加入；传送落点会先亮起，再发生范围冲击。');
       }
     }
 
@@ -1265,9 +1733,9 @@
       b.timer = 1.6;
       b.move = '';
       b.hitResolved = true;
-      this.bossSprite.play('knight-impact2', true);
+      this.playBossAnimation('knight-impact2');
       this.bossSprite.setTint(0xf0cd93);
-      this.time.delayedCall(1600, () => { if (this.bossSprite.active) this.bossSprite.setTint(0xe7798e); });
+      this.time.delayedCall(1600, () => { if (this.bossSprite.active) this.boss.encounter === 'rift' ? this.bossSprite.clearTint() : this.bossSprite.setTint(0xe7798e); });
       this.cameras.main.shake(180, 0.005);
       this.spawnBurst(this.bossSprite.x, FLOOR - 112, 0xf1d49d, 22);
       this.setMessage('Boss 架勢崩潰！獲得 1.6 秒高額反擊窗口。');
@@ -1279,30 +1747,59 @@
       if (this.room === 'boss' && this.boss.mode === 'tell') {
         const move = this.boss.move;
         if (move === 'slash') {
-          const left = Math.min(this.bossSprite.x, this.bossSprite.x + this.boss.facing * BOSS_MOVES.slash.range);
-          const right = Math.max(this.bossSprite.x, this.bossSprite.x + this.boss.facing * BOSS_MOVES.slash.range);
-          g.fillStyle(0xe9bf80, 0.15).fillRoundedRect(left, FLOOR - 78, right - left, 25, 7);
-          g.lineStyle(2, 0xf3d29b, 0.72).lineBetween(left, FLOOR - 80, right, FLOOR - 80);
+          if (this.boss.encounter === 'rift') {
+            const radius = this.boss.moveRange;
+            const tint = this.boss.slashTempo === 'fast' ? 0xffc56b : 0x86d8ff;
+            g.fillStyle(tint, 0.12).fillCircle(this.bossSprite.x, FLOOR - 4, radius);
+            g.lineStyle(3, tint, 0.74).strokeCircle(this.bossSprite.x, FLOOR - 4, radius);
+            g.lineStyle(1, 0xf5e6ff, 0.44).strokeCircle(this.bossSprite.x, FLOOR - 4, radius * 0.72);
+          } else {
+          const range = this.bossMoves().slash.range;
+          const left = Math.min(this.bossSprite.x, this.bossSprite.x + this.boss.facing * range);
+          const right = Math.max(this.bossSprite.x, this.bossSprite.x + this.boss.facing * range);
+          const tint = 0xe9bf80;
+          g.fillStyle(tint, 0.15).fillRoundedRect(left, FLOOR - 78, right - left, 25, 7);
+          g.lineStyle(2, tint, 0.72).lineBetween(left, FLOOR - 80, right, FLOOR - 80);
+          }
         } else if (move === 'shot') {
           const shotEnd = this.boss.facing > 0 ? WIDTH - 40 : 40;
-          g.lineStyle(3, 0xe78a81, 0.36).lineBetween(this.bossSprite.x, FLOOR - 100, shotEnd, FLOOR - 100);
-          g.lineStyle(1, 0xf2b6a1, 0.72).lineBetween(this.bossSprite.x, FLOOR - 100, shotEnd, FLOOR - 100);
-          g.fillStyle(0xe78a81, 0.72).fillCircle(this.bossSprite.x, FLOOR - 100, 10);
+          const shotColor = this.boss.encounter === 'rift' ? 0xc98aff : 0xe78a81;
+          const lanes = this.boss.encounter === 'rift' ? (this.boss.phase >= 3 ? [72, 132, 192] : [72, 146]) : [100];
+          for (const lane of lanes) {
+            g.lineStyle(3, shotColor, 0.3).lineBetween(this.bossSprite.x, FLOOR - lane, shotEnd, FLOOR - lane);
+            g.lineStyle(1, shotColor, 0.72).lineBetween(this.bossSprite.x, FLOOR - lane, shotEnd, FLOOR - lane);
+            g.fillStyle(shotColor, 0.72).fillCircle(this.bossSprite.x, FLOOR - lane, 8);
+          }
         } else if (move === 'rush') {
-          const x = Math.min(this.bossSprite.x, this.boss.targetX);
-          const w = Math.max(44, Math.abs(this.bossSprite.x - this.boss.targetX));
-          g.fillStyle(0xd85e66, 0.18).fillRoundedRect(x, FLOOR - 87, w, 15, 7);
-          g.lineStyle(2, 0xee8d83, 0.74).lineBetween(x, FLOOR - 89, x + w, FLOOR - 89);
-          g.fillStyle(0xf2a38d, 0.7).fillCircle(this.boss.targetX, FLOOR - 89, 7);
+          if (this.boss.encounter === 'rift') {
+            g.fillStyle(0xc48aff, 0.2).fillCircle(this.boss.targetX, FLOOR - 4, this.bossMoves().rush.range);
+            g.lineStyle(3, 0xe0b4ff, 0.82).strokeCircle(this.boss.targetX, FLOOR - 4, this.bossMoves().rush.range);
+            g.lineStyle(2, 0xf5e5ff, 0.72).strokeCircle(this.boss.targetX, FLOOR - 4, 18);
+          } else {
+            const x = Math.min(this.bossSprite.x, this.boss.targetX);
+            const w = Math.max(44, Math.abs(this.bossSprite.x - this.boss.targetX));
+            g.fillStyle(0xd85e66, 0.18).fillRoundedRect(x, FLOOR - 87, w, 15, 7);
+            g.lineStyle(2, 0xee8d83, 0.74).lineBetween(x, FLOOR - 89, x + w, FLOOR - 89);
+            g.fillStyle(0xf2a38d, 0.7).fillCircle(this.boss.targetX, FLOOR - 89, 7);
+          }
         } else if (move === 'wave') {
-          g.fillStyle(0xd65767, 0.22).fillRect(245, FLOOR - 14, 471, 17);
-          g.lineStyle(2, 0xed7788, 0.8).lineBetween(245, FLOOR - 16, 716, FLOOR - 16);
-          g.fillStyle(0x75c9bd, 0.2).fillRoundedRect(52, FLOOR - 6, 192, 7, 3);
-          g.fillStyle(0x75c9bd, 0.2).fillRoundedRect(716, FLOOR - 6, 200, 7, 3);
-          g.lineStyle(2, 0xa4e1d1, 0.82).lineBetween(52, FLOOR - 8, 244, FLOOR - 8);
-          g.lineStyle(2, 0xa4e1d1, 0.82).lineBetween(716, FLOOR - 8, 916, FLOOR - 8);
-          g.fillStyle(0xd4f0d4, 0.88).fillCircle(148, FLOOR - 24, 3);
-          g.fillStyle(0xd4f0d4, 0.88).fillCircle(812, FLOOR - 24, 3);
+          if (this.boss.encounter === 'rift') {
+            const radius = this.bossMoves().wave.range;
+            g.fillStyle(0x9b4bd2, 0.3).fillCircle(this.boss.sealX, FLOOR - 5, radius);
+            g.lineStyle(3, 0xe2a8ff, 0.9).strokeCircle(this.boss.sealX, FLOOR - 5, radius);
+            g.lineStyle(2, 0xf0d8ff, 0.8).lineBetween(this.boss.sealX - 19, FLOOR - 5, this.boss.sealX + 19, FLOOR - 5);
+            g.lineStyle(2, 0xf0d8ff, 0.8).lineBetween(this.boss.sealX, FLOOR - 24, this.boss.sealX, FLOOR + 14);
+          } else {
+            const dangerColor = 0xd65767;
+            g.fillStyle(dangerColor, 0.22).fillRect(245, FLOOR - 14, 471, 17);
+            g.lineStyle(2, 0xed7788, 0.8).lineBetween(245, FLOOR - 16, 716, FLOOR - 16);
+            g.fillStyle(0x75c9bd, 0.2).fillRoundedRect(52, FLOOR - 6, 192, 7, 3);
+            g.fillStyle(0x75c9bd, 0.2).fillRoundedRect(716, FLOOR - 6, 200, 7, 3);
+            g.lineStyle(2, 0xa4e1d1, 0.82).lineBetween(52, FLOOR - 8, 244, FLOOR - 8);
+            g.lineStyle(2, 0xa4e1d1, 0.82).lineBetween(716, FLOOR - 8, 916, FLOOR - 8);
+            g.fillStyle(0xd4f0d4, 0.88).fillCircle(148, FLOOR - 24, 3);
+            g.fillStyle(0xd4f0d4, 0.88).fillCircle(812, FLOOR - 24, 3);
+          }
         }
       }
       for (const enemy of this.entities) {
@@ -1324,14 +1821,15 @@
     drawBossBars() {
       const g = this.hudGraphics;
       g.clear();
-      if (this.room !== 'boss' || !this.bossSprite.visible || this.boss.hp <= 0) return;
+      if (this.room !== 'boss' || (this.boss.encounter !== 'rift' && !this.bossSprite.visible) || this.boss.hp <= 0) return;
       const x = 206, y = 28, width = 548;
       g.fillStyle(0x090e16, 0.88).fillRoundedRect(x, y, width, 13, 5);
-      g.fillStyle(this.boss.phase === 4 ? 0xff3b3b : this.boss.phase === 3 ? 0xe17b83 : this.boss.phase === 2 ? 0xcd777d : 0xae7285, 1).fillRoundedRect(x + 2, y + 2, (width - 4) * (this.boss.hp / BOSS_MAX_HP), 9, 4);
+      const rift = this.boss.encounter === 'rift';
+      g.fillStyle(rift ? (this.boss.phase === 4 ? 0xf5a2ff : this.boss.phase === 3 ? 0xc98aff : this.boss.phase === 2 ? 0x9f7bea : 0x8068cb) : 0xe17b83, 1).fillRoundedRect(x + 2, y + 2, (width - 4) * (this.boss.hp / this.boss.maxHp), 9, 4);
       g.lineStyle(1, 0xd9c9b3, 0.62).strokeRoundedRect(x, y, width, 13, 5);
       g.fillStyle(0x111722, 0.78).fillRoundedRect(x, y + 19, width, 6, 3);
       g.fillStyle(0xe0c187, 0.95).fillRoundedRect(x + 1, y + 20, (width - 2) * (this.boss.posture / 100), 4, 2);
-      this.bossLabel.setText(`幽影守衛 · P${this.boss.phase} · ${Math.ceil(this.boss.hp)} / ${BOSS_MAX_HP}`);
+      this.bossLabel.setText(`${rift ? '裂隙巫妖' : '幽影守卫精英'} · ${rift ? `P${this.boss.phase}` : '精英'} · ${Math.ceil(this.boss.hp)} / ${this.boss.maxHp}`);
       this.bossLabel.setVisible(true);
     }
 
@@ -1360,6 +1858,19 @@
       document.querySelector('#moveTimer').textContent = state;
     }
 
+    updateBossMoveCardCopy() {
+      const isRift = this.boss.encounter === 'rift';
+      const moves = isRift
+        ? [['靈魂震爆', '围绕巫妖扩散的法术；慢速范围大，快速范围小，可跳跃或拉开距离', '慢/快'], ['追魂冥火', '裂隙释放多层魂火弹幕；辨认高度、移动或跳跃穿过', 'P1'], ['幽魂換位', '先标记传送落点，再发生圆形冲击；离开落点范围', 'P2'], ['亡魂印爆', '在你脚下留下符印后爆发；走出紫色圆印或跳起', 'P3']]
+        : [['幽影重斩', '伤害提高；正面格挡或近身弹反，范围更宽', '精英'], ['强化暗影弹', '更快飞行、命中伤害提高；跳/闪或正面格挡', '精英'], ['强化影袭', '前摇缩短、冲击更强；可跳过路径或弹反', '精英'], ['强化震荡', '恢复缩短、伤害提高；跳跃或进入两侧安全区', '精英']];
+      ['moveSlash', 'moveShot', 'moveRush', 'moveWave'].forEach((id, index) => {
+        const card = document.querySelector(`#${id}`);
+        card.querySelector('b').textContent = moves[index][0];
+        card.querySelector('small').textContent = moves[index][1];
+        card.querySelector('.move-tag').textContent = moves[index][2];
+      });
+    }
+
     updateUi() {
       const p = this.playerState;
       document.querySelector('#hpText').innerHTML = `${Math.ceil(p.hp)} <small>/ 100</small>`;
@@ -1376,12 +1887,12 @@
       document.querySelector('#comboText').textContent = `× ${String(p.combo).padStart(2, '0')}`;
       const seconds = Math.floor(this.elapsed);
       document.querySelector('#timeText').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-      document.querySelector('#phaseText').textContent = this.godMode ? `⚙ 策划测试 · P${this.boss.phase}` : this.room === 'boss' ? `幽影守衛 P${this.boss.phase}` : (STORAGE[this.room]?.name || '峡谷');
+      document.querySelector('#phaseText').textContent = this.debugMode && this.room === 'boss' ? `⚙ 策划测试 · P${this.boss.phase}${this.godMode ? ' · 無敵' : ' · 承傷'}` : this.room === 'boss' ? (this.boss.encounter === 'elite' ? '幽影守卫精英' : `裂隙巫妖 P${this.boss.phase}`) : (STORAGE[this.room]?.name || '峡谷');
       document.querySelector('#encounterName').textContent = STORAGE[this.room]?.name || '幽影峡谷';
       document.querySelector('#objectiveText').textContent = this.room === 'boss' ? this.bossGoal() : (STORAGE[this.room]?.goal || '继续前进。');
-      document.querySelector('#encounterCopy').textContent = this.room === 'boss' ? 'Boss 招式按固定顺序轮换，便于观察、练习和复盘；阶段越高，可选应对越多。' : this.roomCopy();
-      document.querySelector('#phaseLabel').textContent = this.room === 'boss' ? `阶段 ${this.boss.phase} / 4` : (this.room === 'warmup' ? '热身教学' : this.room === 'pressure' ? '双威胁压力' : '检查点休整');
-      document.querySelector('#progressLabel').textContent = this.room === 'boss' ? `${Math.ceil(this.boss.hp)} / ${BOSS_MAX_HP} HP` : `${Math.min(100, Math.floor((this.roomIndex / 3) * 100))}%`;
+      document.querySelector('#encounterCopy').textContent = this.room === 'boss' ? (this.boss.encounter === 'elite' ? '幽影守卫作为精英拦路；击败后揭开裂隙巫妖的幕后身份。' : '巫妖使用灵魂震爆、分层冥火、落点换位与追踪符印；每招都有不同预警和躲法。') : this.roomCopy();
+      document.querySelector('#phaseLabel').textContent = this.room === 'boss' ? (this.boss.encounter === 'elite' ? '精英遭遇' : `裂隙巫妖阶段 ${this.boss.phase} / 4`) : (this.room === 'warmup' ? '热身教学' : this.room === 'pressure' ? '双威胁压力' : '检查点休整');
+      document.querySelector('#progressLabel').textContent = this.room === 'boss' ? `${Math.ceil(this.boss.hp)} / ${this.boss.maxHp} HP` : `${Math.min(100, Math.floor((this.roomIndex / 3) * 100))}%`;
       document.querySelector('#combatStats').textContent = `命中 ${this.stats.hits} · 格挡 ${this.stats.blocks} · 弹反 ${this.stats.parries}`;
       document.querySelector('#statusDot').classList.toggle('live', this.status === 'run');
       document.querySelector('#feedback').textContent = this.messageTimer > 0 ? this.currentMessage : this.defaultHint();
@@ -1394,15 +1905,17 @@
     }
 
     bossGoal() {
-      if (this.boss.phase === 1) return '横斩：格挡减伤；面朝Boss、相距150内，在出手前约0.4秒按 E。';
-      if (this.boss.phase === 2) return '突进锁定方向后不可追踪；向外闪、跳过路径，或近身弹反。';
-      return '地面震荡不可格挡：跳起或进入左右高亮安全区。';
+      if (this.boss.encounter === 'elite') return '幽影横斩可格挡或弹反；普攻积累架势，抓住收招窗口输出。';
+      if (this.boss.phase === 1) return '灵魂震爆是圆形法术，追魂冥火分层飞行；拉开距离并辨认弹道高度。';
+      if (this.boss.phase === 2) return '幽魂换位先标记目的地；看见紫色圆环后立刻离开。';
+      if (this.boss.phase === 3) return '亡魂印会锁定脚下位置；离开圆印或在爆发前跳起。';
+      return '最终阶段魂火增至三层；震爆仍慢快交替，注意换位、符印与收招窗口。';
     }
 
     defaultHint() {
       if (this.status === 'paused') return '已暂停。再按 Esc 或点击“继续”恢复。';
       if (this.status !== 'run') return '选择完整试炼体验关卡节奏，或直达Boss观察战斗系统。';
-      if (this.room === 'boss') return '攻击只在有效帧命中；Boss收招期伤害更高。格挡消耗耐力，弹反积累架势。';
+      if (this.room === 'boss') return this.boss.encounter === 'rift' ? '巫妖法术有不同安全解：震爆看范围、冥火看高度、换位看落点、符印离开圆圈。' : '精英横斩可格挡/弹反；突进前摇锁定方向，保持移动并抓住收招反击。';
       if (this.entities.length === 0) return '前方出口已开启，向右移动进入下一段。';
       return '攻击有前摇与收招；失误后有短暂无敌，留意敌人下一次提示。';
     }
@@ -1455,8 +1968,11 @@
           dodgeSuccessRate: this.stats.dodgeAttempts ? this.stats.dodgeSuccesses / this.stats.dodgeAttempts : null,
         },
       };
-      if (!win) this.player.play('hero-dead', true);
-      document.querySelector('#overlayTitle').textContent = win ? '幽影守卫被击败' : '试炼中断';
+      if (!win) {
+        this.player.play('hero-dead', true);
+        this.playSfx('sfx_death', 0.5);
+      }
+      document.querySelector('#overlayTitle').textContent = win ? '裂隙巫妖被击败' : '试炼中断';
       document.querySelector('#overlayText').textContent = '可以填写试玩反馈：哪些招式容易读、哪次受击不公平、格挡与弹反是否值得使用？';
       document.querySelector('#startBtn').innerHTML = '再跑完整试炼 <b>↻</b>';
       document.querySelector('#bossBtn').innerHTML = '重开 Boss 练习 <b>↻</b>';
@@ -1509,6 +2025,20 @@
       this.tweens.add({ targets: g, alpha: 0, duration: 165, onComplete: () => g.destroy() });
       const targetX = this.room === 'boss' ? this.bossSprite.x : (this.nearestEnemy()?.x ?? x);
       this.spawnBurst((x + targetX) / 2, y, color, index === 2 ? 9 : 6);
+    }
+
+    // 播一次就自我销毁的特效精灵：不需要任何外部状态跟踪，房间切换也不会残留。
+    spawnFx(anim, texture, x, y, scale = 1, depth = 25) {
+      const fx = this.add.sprite(x, y, texture, 0).setDepth(depth).setScale(scale);
+      fx.play(anim, true);
+      fx.once('animationcomplete', () => fx.destroy());
+      return fx;
+    }
+
+    clearProjectile(shot) {
+      if (shot.core) shot.core.destroy();
+      if (shot.fx) shot.fx.destroy();
+      shot.glow.destroy();
     }
 
     spawnBurst(x, y, color, amount) {
